@@ -9,25 +9,25 @@
 
 <PageTitle>AI Chat Workspace</PageTitle>
 
-<div class="container-fluid mt-4">
-    <div class="row">
+<div class="container-fluid d-flex h-100 p-3 pt-0" style="max-height: 90vh;">
+    <div class="row flex-grow-1 w-100 bg-white rounded-4 shadow-sm border overflow-hidden">
         <!-- Sidebar / Workspace Menu -->
-        <div class="col-md-3 border-end" style="height: 85vh; overflow-y: auto;">
-            <h4>Munkaterület</h4>
+        <div class="col-md-3 bg-light border-end p-3 d-flex flex-column" style="overflow-y: auto;">
+            <h4 class="mb-4 fw-bold text-dark">Munkaterület</h4>
 
             <!-- Standalone Chats -->
             <div class="mb-4">
-                <h5>Egyszerű chatek</h5>
-                <div class="input-group mb-2">
-                    <input type="text" class="form-control form-control-sm" @bind="newStandaloneChatTitle" placeholder="Új chat címe..." />
-                    <button class="btn btn-sm btn-outline-primary" @onclick="CreateStandaloneChat">Létrehoz</button>
+                <h6 class="text-uppercase text-muted fw-bold mb-3" style="font-size: 0.85rem;">Egyszerű chatek</h6>
+                <div class="input-group mb-3 shadow-sm rounded">
+                    <input type="text" class="form-control border-0" @bind="newStandaloneChatTitle" placeholder="Új chat címe..." />
+                    <button class="btn btn-primary px-3" @onclick="CreateStandaloneChat">Létrehoz</button>
                 </div>
-                <ul class="list-group list-group-flush">
+                <ul class="list-group list-group-flush rounded shadow-sm">
                     @foreach (var chat in standaloneChats)
                     {
-                        <li class="list-group-item list-group-item-action @(activeChat == chat ? "active text-white bg-primary" : "")" 
-                            style="cursor: pointer;" @onclick="async () => await SelectChat(null, chat)">
-                            @chat.Title
+                        <li class="list-group-item list-group-item-action d-flex align-items-center @(activeChat == chat ? "active fw-bold" : "border-0")" 
+                            style="cursor: pointer; transition: all 0.2s;" @onclick="async () => await SelectChat(null, chat)">
+                            <i class="bi bi-chat-left-text me-2"></i> @chat.Title
                         </li>
                     }
                 </ul>
@@ -35,37 +35,37 @@
 
             <!-- Projects -->
             <div>
-                <h5>Projektek</h5>
-                <div class="input-group mb-2">
-                    <input type="text" class="form-control form-control-sm" @bind="newProjectName" placeholder="Új projekt neve..." />
-                    <button class="btn btn-sm btn-outline-success" @onclick="CreateProject">Létrehoz</button>
+                <h6 class="text-uppercase text-muted fw-bold mb-3" style="font-size: 0.85rem;">Projektek</h6>
+                <div class="input-group mb-3 shadow-sm rounded">
+                    <input type="text" class="form-control border-0" @bind="newProjectName" placeholder="Új projekt neve..." />
+                    <button class="btn btn-success px-3" @onclick="CreateProject">Létrehoz</button>
                 </div>
 
                 @foreach (var proj in projects)
                 {
-                    <div class="card mb-2">
-                        <div class="card-header d-flex justify-content-between align-items-center p-2">
-                            <strong>@proj.Name</strong>
-                            <button class="btn btn-sm btn-outline-secondary py-0" style="font-size: 0.8rem;" @onclick="() => PromptNewProjectChat(proj)">+ Chat</button>
+                    <div class="card border-0 shadow-sm mb-3 rounded-3">
+                        <div class="card-header bg-white border-bottom-0 d-flex justify-content-between align-items-center py-2 rounded-top-3">
+                            <strong class="text-dark">@proj.Name</strong>
+                            <button class="btn btn-sm btn-light text-primary rounded-circle d-flex align-items-center justify-content-center" style="width: 28px; height: 28px; padding: 0;" title="Új chat ehhez a projekthez" @onclick="() => PromptNewProjectChat(proj)">+</button>
                         </div>
                         @if (projectToCreateChatFor == proj)
                         {
-                            <div class="card-body p-2 border-bottom">
-                                <div class="input-group input-group-sm">
-                                    <input type="text" class="form-control" @bind="newProjectChatTitle" placeholder="Chat címe..." />
-                                    <button class="btn btn-outline-primary" @onclick="CreateProjectChat">Hozzáad</button>
-                                    <button class="btn btn-outline-danger" @onclick="() => projectToCreateChatFor = null">X</button>
+                            <div class="card-body p-2 bg-light border-bottom">
+                                <div class="input-group input-group-sm shadow-sm rounded">
+                                    <input type="text" class="form-control border-0" @bind="newProjectChatTitle" placeholder="Chat címe..." />
+                                    <button class="btn btn-primary" @onclick="CreateProjectChat">Hozzáad</button>
+                                    <button class="btn btn-danger" @onclick="() => projectToCreateChatFor = null">X</button>
                                 </div>
                             </div>
                         }
-                        <ul class="list-group list-group-flush">
+                        <ul class="list-group list-group-flush rounded-bottom-3">
                             @if (projectChatsByProject.ContainsKey(proj.Id))
                             {
                                 @foreach (var pChat in projectChatsByProject[proj.Id])
                                 {
-                                    <li class="list-group-item list-group-item-action p-2 @(activeChat == pChat ? "active text-white bg-primary" : "")"
-                                        style="cursor: pointer; padding-left: 20px;" @onclick="async () => await SelectChat(proj, pChat)">
-                                        @pChat.Title
+                                    <li class="list-group-item list-group-item-action border-0 py-2 @(activeChat == pChat ? "active fw-bold" : "bg-light")"
+                                        style="cursor: pointer; padding-left: 1.5rem; transition: background-color 0.2s;" @onclick="async () => await SelectChat(proj, pChat)">
+                                        <i class="bi bi-chat-dots me-2 text-muted"></i> @pChat.Title
                                     </li>
                                 }
                             }
@@ -76,43 +76,54 @@
         </div>
 
         <!-- Chat Area -->
-        <div class="col-md-9 d-flex flex-column" style="height: 85vh;">
+        <div class="col-md-9 p-0 d-flex flex-column position-relative bg-white" style="height: 100%;">
             @if (activeChat == null)
             {
-                <div class="d-flex justify-content-center align-items-center h-100 border rounded bg-light">
-                    <h4 class="text-muted">Válassz ki vagy hozz létre egy chatet a kezdéshez!</h4>
+                <div class="d-flex flex-column justify-content-center align-items-center h-100 bg-light">
+                    <div class="text-muted mb-3" style="font-size: 3rem;"><i class="bi bi-chat-square-dots"></i></div>
+                    <h4 class="text-secondary fw-light">Válassz ki vagy hozz létre egy chatet a kezdéshez!</h4>
                 </div>
             }
             else
             {
-                <div class="d-flex justify-content-between border-bottom pb-2 mb-2">
-                    <h4>@activeChat.Title <span class="text-muted" style="font-size: 1rem;">@(activeProject != null ? $" ({activeProject.Name} projekt)" : "")</span></h4>
+                <!-- Chat Header -->
+                <div class="d-flex justify-content-between align-items-center p-3 border-bottom bg-white shadow-sm z-1">
+                    <h5 class="mb-0 fw-bold text-dark">
+                        @activeChat.Title 
+                        <span class="text-muted fw-normal ms-2" style="font-size: 0.9rem;">
+                            @(activeProject != null ? $"({activeProject.Name} projekt)" : "")
+                        </span>
+                    </h5>
                     @if (activeProject != null && !string.IsNullOrEmpty(activeProject.JointSummary))
                     {
-                        <button class="btn btn-sm btn-info" title="@activeProject.JointSummary" @onclick="() => showSummary = !showSummary">
-                            @(showSummary ? "Memória elrejtése" : "Memória mutatása")
+                        <button class="btn btn-sm @(showSummary ? "btn-info text-white" : "btn-outline-info") rounded-pill px-3 transition-all" title="@activeProject.JointSummary" @onclick="() => showSummary = !showSummary">
+                            <i class="bi bi-journal-text me-1"></i> @(showSummary ? "Memória elrejtése" : "Memória mutatása")
                         </button>
                     }
                 </div>
 
                 @if (showSummary && activeProject != null)
                 {
-                    <div class="alert alert-secondary p-2 mb-2" style="max-height: 150px; overflow-y: auto;">
-                        <strong>Közös projekt memória:</strong><br />
-                        @activeProject.JointSummary
+                    <div class="alert alert-info border-0 shadow-sm m-3 p-3 rounded-3" style="max-height: 150px; overflow-y: auto;">
+                        <h6 class="alert-heading fw-bold mb-1"><i class="bi bi-memory me-1"></i> Közös projekt memória</h6>
+                        <p class="mb-0 small text-dark">@activeProject.JointSummary</p>
                     </div>
                 }
 
-                <div class="chat-box flex-grow-1 border rounded p-3 mb-3 d-flex flex-column" style="overflow-y: auto; background: #f8f9fa;">
+                <!-- Chat Messages -->
+                <div class="chat-box flex-grow-1 p-4 d-flex flex-column" style="overflow-y: auto; background-color: #f8f9fa;">
                     @if (currentMessages.Count == 0)
                     {
-                        <div class="text-center text-muted mt-5">Nincsenek üzenetek ebben a chatben. Írj valamit a kezdéshez!</div>
+                        <div class="d-flex flex-column justify-content-center align-items-center h-100 opacity-50">
+                            <div class="mb-2" style="font-size: 2rem;"><i class="bi bi-chat-quote"></i></div>
+                            <div class="text-center text-muted">Nincsenek üzenetek ebben a chatben.<br>Írj valamit a kezdéshez!</div>
+                        </div>
                     }
                     @foreach (var msg in currentMessages.Where(m => m.Role != "system"))
                     {
-                        <div class="mb-2 text-@(msg.Role == "user" ? "end" : "start")">
-                            <span class="badge @(msg.Role == "user" ? "bg-primary" : "bg-light text-dark border") p-2 text-start text-wrap" 
-                                  style="font-size: 1rem; max-width: 80%;">
+                        <div class="mb-3 d-flex flex-column @(msg.Role == "user" ? "align-items-end" : "align-items-start")">
+                            <div class="px-3 py-2 rounded-4 shadow-sm @(msg.Role == "user" ? "bg-primary text-white" : "bg-white text-dark border")" 
+                                 style="max-width: 75%; font-size: 0.95rem; line-height: 1.5;">
                                 @if (msg.Role == "user")
                                 {
                                     @msg.Content
@@ -120,45 +131,68 @@
                                 else
                                 {
                                     <!-- A Markdig konvertálja a Markdown-t HTML-re, a (MarkupString) pedig utasítja a Blazort, hogy renderelje le -->
-                                    @((MarkupString)Markdown.ToHtml(msg.Content ?? ""))
+                                    <div class="markdown-content">
+                                        @((MarkupString)Markdown.ToHtml(msg.Content ?? ""))
+                                    </div>
                                 }
-                            </span>
+                            </div>
+                            <small class="text-muted mt-1 px-1" style="font-size: 0.75rem;">
+                                @(msg.Role == "user" ? "Te" : "Asszisztens")
+                            </small>
                         </div>
                     }
                     @if (isTyping)
                     {
-                        <div class="text-start mb-2">
-                            <span class="badge bg-secondary p-2">Az MI gépel...</span>
+                        <div class="mb-3 d-flex flex-column align-items-start">
+                            <div class="px-3 py-2 rounded-4 shadow-sm bg-white text-dark border" style="max-width: 75%;">
+                                <div class="typing-indicator d-flex align-items-center gap-1 py-1">
+                                    <span class="spinner-grow spinner-grow-sm text-secondary" style="width: 0.5rem; height: 0.5rem;" role="status"></span>
+                                    <span class="spinner-grow spinner-grow-sm text-secondary" style="width: 0.5rem; height: 0.5rem; animation-delay: 0.2s;" role="status"></span>
+                                    <span class="spinner-grow spinner-grow-sm text-secondary" style="width: 0.5rem; height: 0.5rem; animation-delay: 0.4s;" role="status"></span>
+                                </div>
+                            </div>
                         </div>
                     }
                 </div>
 
-                <!-- File & Input Area -->
-                <div class="mt-auto">
-                    <div class="d-flex align-items-center justify-content-between mb-2">
+                <!-- Input Area -->
+                <div class="p-3 bg-white border-top shadow-sm z-1">
+                    <!-- File & Context Controls -->
+                    <div class="d-flex align-items-center justify-content-between mb-3 px-1">
                         <div class="d-flex align-items-center gap-2">
-                            <InputFile OnChange="HandleFileSelected" class="form-control form-control-sm" accept=".pdf,.docx,.txt,.pptx" style="max-width: 250px;" />
+                            <div class="position-relative">
+                                <InputFile OnChange="HandleFileSelected" class="form-control form-control-sm border-secondary-subtle" accept=".pdf,.docx,.txt,.pptx" style="max-width: 250px; font-size: 0.85rem;" />
+                            </div>
                             @if (!string.IsNullOrEmpty(activeChat.ActiveDocumentText))
                             {
-                                <button class="btn btn-sm btn-outline-danger" @onclick="ClearDocument" title="Dokumentum eltávolítása a chatből">X</button>
+                                <button class="btn btn-sm btn-outline-danger px-2 rounded-circle d-flex align-items-center justify-content-center" @onclick="ClearDocument" title="Dokumentum eltávolítása a chatből" style="width: 28px; height: 28px;">
+                                    X
+                                </button>
                             }
                         </div>
 
                         <div class="form-check form-switch ms-3">
                             <input class="form-check-input" type="checkbox" id="docToggle" @bind="useDocumentContext" disabled="@(string.IsNullOrEmpty(activeChat.ActiveDocumentText))">
-                            <label class="form-check-label @(useDocumentContext ? "text-danger fw-bold" : "")" for="docToggle" title="Kapcsold be, hogy a fájl tartalma minden kérdéshez el legyen küldve!">
+                            <label class="form-check-label small @(useDocumentContext ? "text-primary fw-bold" : "text-muted")" for="docToggle" title="Kapcsold be, hogy a fájl tartalma minden kérdéshez el legyen küldve!">
                                 Dokumentum kontextus @(useDocumentContext ? "(Aktív)" : "(Inaktív)")
                             </label>
                         </div>
                     </div>
+                    
                     @if (isProcessingFile)
                     {
-                        <div class="alert alert-info py-1 mb-2">Fájl feldolgozása folyamatban...</div>
+                        <div class="alert alert-info py-2 px-3 mb-3 d-flex align-items-center small">
+                            <span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+                            Fájl feldolgozása folyamatban...
+                        </div>
                     }
 
-                    <div class="input-group">
-                        <input type="text" class="form-control" @bind="userInput" @bind:event="oninput" @onkeyup="HandleKeyUp" placeholder="Írj egy üzenetet..." disabled="@isTyping" />
-                        <button class="btn btn-primary" @onclick="SendMessage" disabled="@(isTyping || string.IsNullOrWhiteSpace(userInput))">Küldés</button>
+                    <!-- Message Input -->
+                    <div class="input-group shadow-sm rounded-pill overflow-hidden border">
+                        <input type="text" class="form-control border-0 px-4 py-2" @bind="userInput" @bind:event="oninput" @onkeyup="HandleKeyUp" placeholder="Írj egy üzenetet..." disabled="@isTyping" style="box-shadow: none;" />
+                        <button class="btn btn-primary px-4 py-2" @onclick="SendMessage" disabled="@(isTyping || string.IsNullOrWhiteSpace(userInput))">
+                            Küldés
+                        </button>
                     </div>
                 </div>
             }

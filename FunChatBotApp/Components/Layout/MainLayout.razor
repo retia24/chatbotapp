@@ -1,16 +1,28 @@
 ﻿@inherits LayoutComponentBase
 
-<div class="page">
-    <div class="sidebar">
-        <NavMenu />
-    </div>
+<div class="page d-flex flex-column" style="height: 100vh;">
+    <header>
+        <nav class="navbar navbar-expand-lg navbar-dark shadow-sm z-3" style="background-image: linear-gradient(180deg, rgb(5, 39, 103) 0%, #3a0647 100%);">
+            <div class="container-fluid">
+                <a class="navbar-brand fw-bold" href=""><i class="bi bi-robot me-2"></i>FunChatBotApp</a>
+                <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                    <span class="navbar-toggler-icon"></span>
+                </button>
+                <div class="collapse navbar-collapse" id="navbarNav">
+                    <ul class="navbar-nav me-auto mb-2 mb-lg-0">
+                        <li class="nav-item">
+                            <NavLink class="nav-link px-3" href="" Match="NavLinkMatch.All">
+                                <i class="bi bi-house-door me-1"></i> Home
+                            </NavLink>
+                        </li>
+                    </ul>
+                </div>
+            </div>
+        </nav>
+    </header>
 
-    <main>
-        <div class="top-row px-4">
-            <a href="https://learn.microsoft.com/aspnet/core/" target="_blank">About</a>
-        </div>
-
-        <article class="content px-4">
+    <main class="flex-grow-1 overflow-auto bg-light">
+        <article class="content p-4 h-100">
             @Body
         </article>
     </main>
