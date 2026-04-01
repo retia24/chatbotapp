@@ -1,0 +1,57 @@
+## C# és .NET Core ignorálások ##
+
+# Fordítási eredmények és ideiglenes fájlok
+bin/
+obj/
+TestResults/
+
+# Visual Studio specifikus fájlok és mappák
+.vs/
+*.user
+*.userosscache
+*.sln.docstates
+*.suo
+*.userprefs
+*.vssscc
+*.vssscc
+*.vspscc
+
+# Kódlefedettség és profilozás (ha később használnád)
+*.coverage
+*.coveragexml
+_Chutzpah*
+ipch/
+*.aps
+*.ncb
+*.opendb
+*.opensdf
+*.sdf
+*.cachefile
+
+# Publikálási profilok (A jelszavakat/kulcsokat tartalmazó user fájlok)
+*.pubxml.user
+*.publishproj
+
+# NuGet csomagok mappája (A packages mappát nem szokás kommitolni, a dotnet restore úgyis letölti)
+*.nupkg
+*.snupkg
+**/packages/
+!**/packages/build/
+
+# Mac specifikus (Ha esetleg Mac-en is fejlesztenél)
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Környezeti változók és helyi fejlesztői konfigurációk
+# FONTOS: Az appsettings.Development.json gyakran tartalmaz lokális tesztkulcsokat,
+# bár a feladatban Key Vaultot és User Secrets-t használunk, érdemes ezt is ignorálni a biztonság kedvéért.
+appsettings.Development.json
+appsettings.local.json
+.env
+
+# Azure Functions / App Service helyi beállítások (ha később lokálisan emulálnál)
+local.settings.json
+
+# Egyéb általános log fájlok
+*.log

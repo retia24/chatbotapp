@@ -1,0 +1,124 @@
+﻿@page "/"
+@using OpenAI.Chat
+@inject ChatService ChatSvc
+@inject DocumentService DocSvc
+@rendermode InteractiveServer
+
+<PageTitle>AI Chat Asszisztens</PageTitle>
+
+<div class="container mt-4">
+    <h3>Beszélgetés az MI-vel</h3>
+
+    <div class="chat-box border rounded p-3 mb-3" style="height: 400px; overflow-y: auto;">
+        @foreach (var msg in chatHistory.Where(m => m is not SystemChatMessage))
+        {
+            <div class="mb-2 text-@(msg is UserChatMessage ? "end" : "start")">
+                <span class="badge @(msg is UserChatMessage ? "bg-primary" : "bg-success") p-2" style="font-size: 1rem; white-space: pre-wrap; text-align: left; display: inline-block; max-width: 80%;">
+                    @GetMessageContent(msg)
+                </span>
+            </div>
+        }
+    </div>
+
+    <div class="input-group mb-3">
+        <InputFile OnChange="HandleFileSelected" class="form-control" accept=".pdf,.docx,.txt,.pptx" />
+    </div>
+
+    @if (isProcessingFile)
+    {
+        <div class="alert alert-info">Fájl feldolgozása folyamatban...</div>
+    }
+
+    <div class="input-group">
+        <input type="text" class="form-control" @bind="userInput" @bind:event="oninput" @onkeyup="HandleKeyUp" placeholder="Írj egy üzenetet..." disabled="@isTyping" />
+        <button class="btn btn-primary" @onclick="SendMessage" disabled="@(isTyping || string.IsNullOrWhiteSpace(userInput))">Küldés</button>
+    </div>
+</div>
+
+@code {
+    private List<ChatMessage> chatHistory = new();
+    private string userInput = "";
+    private string extractedDocumentText = "";
+    private bool isTyping = false;
+    private bool isProcessingFile = false;
+
+    protected override void OnInitialized()
+    {
+        // Rendszer prompt beállítása
+        chatHistory.Add(new SystemChatMessage("You are an AI assistant that helps people find information."));
+    }
+
+    private async Task HandleFileSelected(InputFileChangeEventArgs e)
+    {
+        isProcessingFile = true;
+        try
+        {
+            var file = e.File;
+            // 10 MB limit beállítása, és stream nyitása
+            using var stream = file.OpenReadStream(10 * 1024 * 1024);
+            extractedDocumentText = await DocSvc.ExtractTextFromStreamAsync(stream);
+        }
+        catch (Exception ex)
+        {
+            extractedDocumentText = $"Hiba a fájl olvasásakor: {ex.Message}";
+        }
+        finally
+        {
+            isProcessingFile = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task SendMessage()
+    {
+        if (string.IsNullOrWhiteSpace(userInput)) return;
+
+        isTyping = true;
+        
+        string prompt = userInput;
+
+        // Ha van feltöltött dokumentum szöveg, azt hozzácsapjuk a prompthoz
+        if (!string.IsNullOrEmpty(extractedDocumentText))
+        {
+            prompt += $"\n\n[Referencia dokumentum tartalma]:\n{extractedDocumentText}";
+            extractedDocumentText = ""; // Kiürítjük, hogy a következő körben ne küldjük el újra feleslegesen
+        }
+
+        // Felhasználói üzenet hozzáadása a történethez
+        chatHistory.Add(new UserChatMessage(prompt));
+        userInput = ""; // Input mező ürítése
+        StateHasChanged();
+
+        try
+        {
+            // Válasz lekérése az MI-től
+            var response = await ChatSvc.SendMessageAsync(chatHistory);
+            chatHistory.Add(new AssistantChatMessage(response));
+        }
+        catch (Exception ex)
+        {
+            chatHistory.Add(new AssistantChatMessage($"Hiba történt a kommunikáció során: {ex.Message}"));
+        }
+        finally
+        {
+            isTyping = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task HandleKeyUp(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter") await SendMessage();
+    }
+
+    // Segédfüggvény a különböző típusú üzenetek tartalmának kinyerésére megjelenítéshez
+    private string GetMessageContent(ChatMessage msg)
+    {
+        return msg switch
+        {
+            UserChatMessage um => string.Join(" ", um.Content.Select(c => c.Text)),
+            AssistantChatMessage am => string.Join(" ", am.Content.Select(c => c.Text)),
+            _ => ""
+        };
+    }
+}
