@@ -1,6 +1,7 @@
 ﻿@page "/"
 @using FunChatBotApp.Models
 @using FunChatBotApp.Services
+@using Markdig
 @inject ChatService ChatSvc
 @inject DocumentService DocSvc
 @inject CosmosDbService CosmosDb
@@ -107,9 +108,17 @@
                     @foreach (var msg in activeChat.Messages.Where(m => m.Role != "system"))
                     {
                         <div class="mb-2 text-@(msg.Role == "user" ? "end" : "start")">
-                            <span class="badge @(msg.Role == "user" ? "bg-primary" : "bg-success") p-2 text-start text-wrap" 
-                                  style="font-size: 1rem; max-width: 80%; color: white;">
-                                @msg.Content
+                            <span class="badge @(msg.Role == "user" ? "bg-primary" : "bg-light text-dark border") p-2 text-start text-wrap" 
+                                  style="font-size: 1rem; max-width: 80%;">
+                                @if (msg.Role == "user")
+                                {
+                                    @msg.Content
+                                }
+                                else
+                                {
+                                    <!-- A Markdig konvertálja a Markdown-t HTML-re, a (MarkupString) pedig utasítja a Blazort, hogy renderelje le -->
+                                    @((MarkupString)Markdown.ToHtml(msg.Content ?? ""))
+                                }
                             </span>
                         </div>
                     }
@@ -123,16 +132,25 @@
 
                 <!-- File & Input Area -->
                 <div class="mt-auto">
-                    <div class="input-group mb-2">
-                        <InputFile OnChange="HandleFileSelected" class="form-control form-control-sm" accept=".pdf,.docx,.txt,.pptx" />
+                    <div class="d-flex align-items-center justify-content-between mb-2">
+                        <div class="d-flex align-items-center gap-2">
+                            <InputFile OnChange="HandleFileSelected" class="form-control form-control-sm" accept=".pdf,.docx,.txt,.pptx" style="max-width: 250px;" />
+                            @if (!string.IsNullOrEmpty(activeChat.ActiveDocumentText))
+                            {
+                                <button class="btn btn-sm btn-outline-danger" @onclick="ClearDocument" title="Dokumentum eltávolítása a chatből">X</button>
+                            }
+                        </div>
+
+                        <div class="form-check form-switch ms-3">
+                            <input class="form-check-input" type="checkbox" id="docToggle" @bind="useDocumentContext" disabled="@(string.IsNullOrEmpty(activeChat.ActiveDocumentText))">
+                            <label class="form-check-label @(useDocumentContext ? "text-danger fw-bold" : "")" for="docToggle" title="Kapcsold be, hogy a fájl tartalma minden kérdéshez el legyen küldve!">
+                                Dokumentum kontextus @(useDocumentContext ? "(Aktív)" : "(Inaktív)")
+                            </label>
+                        </div>
                     </div>
                     @if (isProcessingFile)
                     {
                         <div class="alert alert-info py-1 mb-2">Fájl feldolgozása folyamatban...</div>
-                    }
-                    @if (!string.IsNullOrEmpty(extractedDocumentText))
-                    {
-                        <div class="alert alert-success py-1 mb-2">Fájl csatolva: kész a küldésre.</div>
                     }
 
                     <div class="input-group">
@@ -161,7 +179,7 @@
 
     // UI állapotok
     private string userInput = "";
-    private string extractedDocumentText = "";
+    private bool useDocumentContext = false;
     private bool isTyping = false;
     private bool isProcessingFile = false;
     private bool showSummary = false;
@@ -221,20 +239,27 @@
         activeChat = chat;
         showSummary = false;
         userInput = "";
-        extractedDocumentText = "";
+        useDocumentContext = !string.IsNullOrEmpty(chat.ActiveDocumentText);
     }
 
     private async Task HandleFileSelected(InputFileChangeEventArgs e)
     {
+        if (activeChat == null) return;
+
         isProcessingFile = true;
         try
         {
             using var stream = e.File.OpenReadStream(10 * 1024 * 1024);
-            extractedDocumentText = await DocSvc.ExtractTextFromStreamAsync(stream);
+            activeChat.ActiveDocumentText = await DocSvc.ExtractTextFromStreamAsync(stream);
+            useDocumentContext = true; // Auto-bekapcsolás csatolás után
+
+            // Mentjük az új állapotot
+            if (activeProject != null) await CosmosDb.UpsertProjectAsync(activeProject);
+            else await CosmosDb.UpsertStandaloneChatAsync(activeChat);
         }
         catch (Exception ex)
         {
-            extractedDocumentText = $"Hiba: {ex.Message}";
+            activeChat.ActiveDocumentText = $"Hiba: {ex.Message}";
         }
         finally
         {
@@ -243,30 +268,22 @@
         }
     }
 
+    private async Task ClearDocument()
+    {
+        if (activeChat != null)
+        {
+            activeChat.ActiveDocumentText = null;
+            useDocumentContext = false;
+            if (activeProject != null) await CosmosDb.UpsertProjectAsync(activeProject);
+            else await CosmosDb.UpsertStandaloneChatAsync(activeChat);
+        }
+    }
+
     private async Task SendMessage()
     {
         if (string.IsNullOrWhiteSpace(userInput) || activeChat == null) return;
 
         string prompt = userInput;
-        
-        // Ha van csatolt dokumentum, strukturáljuk át a promptot, hogy
-        // a dokumentum szövege egyértelműen el legyen különítve,
-        // a felhasználó kérdése / utasítása pedig a prompt VÉGÉRE kerüljön.
-        if (!string.IsNullOrEmpty(extractedDocumentText))
-        {
-            var textToInject = extractedDocumentText;
-            
-            // Biztonsági korlát: Levágjuk a szöveget ~30 000 karakternél,
-            // hogy a modell ne dobjon token limit exceed hibát nagy fájloknál.
-            if (textToInject.Length > 30000)
-            {
-                textToInject = textToInject.Substring(0, 30000) + "\n... [TARTALOM LEVÁGVA A HOSSZ MIATT]";
-            }
-
-            prompt = $"Kérlek, használd az alábbi dokumentum tartalmát a válaszadáshoz:\n\n<document>\n{textToInject}\n</document>\n\nA fenti dokumentum alapján válaszold meg az alábbi kérdést vagy utasítást:\n{userInput}";
-            
-            extractedDocumentText = ""; // Kiürítjük a memóriából, hogy ne küldjük el újra egy sima enter-re
-        }
 
         userInput = "";
         isTyping = true;
@@ -276,11 +293,11 @@
         {
             if (activeProject != null)
             {
-                await ChatSvc.ProcessProjectMessageAsync(activeProject, activeChat, prompt);
+                await ChatSvc.ProcessProjectMessageAsync(activeProject, activeChat, prompt, useDocumentContext);
             }
             else
             {
-                await ChatSvc.ProcessStandaloneMessageAsync(activeChat, prompt);
+                await ChatSvc.ProcessStandaloneMessageAsync(activeChat, prompt, useDocumentContext);
             }
         }
         catch (Exception ex)

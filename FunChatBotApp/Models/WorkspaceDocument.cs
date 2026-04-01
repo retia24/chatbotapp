@@ -43,7 +43,10 @@ public class ChatSession : WorkspaceDocument
     }
 
     public string Title { get; set; } = string.Empty;
-    
+
+    // Az aktuális beszélgetéshez csatolt dokumentum nyers szövege
+    public string? ActiveDocumentText { get; set; }
+
     public List<ChatMessage> Messages { get; set; } = new();
 }
 

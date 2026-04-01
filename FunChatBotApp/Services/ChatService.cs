@@ -44,7 +44,7 @@ public class ChatService
     /// <summary>
     /// Projekt alapú beszélgetés - csatolt közös memóriával és szummarizációval.
     /// </summary>
-    public async Task<string> ProcessProjectMessageAsync(Project project, ChatSession chat, string userMessage)
+    public async Task<string> ProcessProjectMessageAsync(Project project, ChatSession chat, string userMessage, bool includeDocumentContext = false)
     {
         // 1. Felhasználói üzenet rögzítése
         chat.Messages.Add(new Models.ChatMessage { Role = "user", Content = userMessage });
@@ -56,6 +56,17 @@ public class ChatService
         {
             // A projekt globális memóriáját System promptként adjuk át
             openAiHistory.Add(new SystemChatMessage($"Project Context/Memory: {project.JointSummary}"));
+        }
+
+        // Új logika: Külön tárolt dokumentum beemelése szükség esetén
+        if (includeDocumentContext && !string.IsNullOrEmpty(chat.ActiveDocumentText))
+        {
+            var textToInject = chat.ActiveDocumentText;
+            if (textToInject.Length > 30000)
+            {
+                textToInject = textToInject.Substring(0, 30000) + "\n... [TARTALOM LEVÁGVA A HOSSZ MIATT]";
+            }
+            openAiHistory.Add(new SystemChatMessage($"Reference Document:\n<document>\n{textToInject}\n</document>"));
         }
 
         // Sliding window
@@ -96,11 +107,23 @@ public class ChatService
     /// <summary>
     /// "Szimpla", egyéni beszélgetés külön projekt és memória nélkül
     /// </summary>
-    public async Task<string> ProcessStandaloneMessageAsync(ChatSession chat, string userMessage)
+    public async Task<string> ProcessStandaloneMessageAsync(ChatSession chat, string userMessage, bool includeDocumentContext = false)
     {
         chat.Messages.Add(new Models.ChatMessage { Role = "user", Content = userMessage });
 
         var openAiHistory = new List<OpenAI.Chat.ChatMessage>();
+
+        // Új logika: Külön tárolt dokumentum beemelése szükség esetén
+        if (includeDocumentContext && !string.IsNullOrEmpty(chat.ActiveDocumentText))
+        {
+            var textToInject = chat.ActiveDocumentText;
+            if (textToInject.Length > 30000)
+            {
+                textToInject = textToInject.Substring(0, 30000) + "\n... [TARTALOM LEVÁGVA A HOSSZ MIATT]";
+            }
+            openAiHistory.Add(new SystemChatMessage($"Reference Document:\n<document>\n{textToInject}\n</document>"));
+        }
+
         var recentMessages = chat.Messages.TakeLast(SlidingWindowSize);
         foreach (var msg in recentMessages)
         {
