@@ -24,7 +24,7 @@ namespace FunChatBotApp
                 .AddInteractiveServerComponents();
 
             // Saját service-ek regisztrálása (ezeket a következő lépésben hozzuk létre)
-            builder.Services.AddSingleton<CosmosDbService>(); // CosmosDB-hez érdemes Singletont használni
+            builder.Services.AddSingleton<CosmosDbService>();
             builder.Services.AddScoped<DocumentService>();
             builder.Services.AddScoped<ChatService>();
             

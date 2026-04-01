@@ -80,14 +80,15 @@ public class CosmosDbService
 
     public async Task<List<ChatSession>> GetStandaloneChatsAsync()
     {
-        var query = _container.GetItemLinqQueryable<ChatSession>()
-            .Where(x => x.Type == "StandaloneChat")
-            .ToFeedIterator();
+        // A Type alapján listázzuk azokat a chateket, amiknek a ProjectId megegyezik a saját Id-val
+        var query = new QueryDefinition("SELECT * FROM c WHERE c.type = 'StandaloneChat' AND c.projectId = c.id");
 
+        var iterator = _container.GetItemQueryIterator<ChatSession>(query);
         var results = new List<ChatSession>();
-        while (query.HasMoreResults)
+
+        while (iterator.HasMoreResults)
         {
-            var response = await query.ReadNextAsync();
+            var response = await iterator.ReadNextAsync();
             results.AddRange(response);
         }
         return results;
@@ -121,5 +122,65 @@ public class CosmosDbService
     public async Task DeleteStandaloneChatAsync(string id)
     {
         await _container.DeleteItemAsync<ChatSession>(id, new PartitionKey(id));
+    }
+
+    // ==========================================
+    // Projekt Chatek - műveletek
+    // ==========================================
+
+    public async Task<List<ChatSession>> GetProjectChatsAsync(string projectId)
+    {
+        var query = new QueryDefinition("SELECT * FROM c WHERE c.projectId = @projectId AND c.type = 'StandaloneChat'")
+            .WithParameter("@projectId", projectId);
+
+        var iterator = _container.GetItemQueryIterator<ChatSession>(
+            query, 
+            requestOptions: new QueryRequestOptions { PartitionKey = new PartitionKey(projectId) });
+
+        var results = new List<ChatSession>();
+        while (iterator.HasMoreResults)
+        {
+            var response = await iterator.ReadNextAsync();
+            results.AddRange(response);
+        }
+        return results;
+    }
+
+    public async Task UpsertProjectChatAsync(ChatSession chat, string projectId)
+    {
+        chat.Type = "StandaloneChat";
+        chat.ProjectId = projectId;
+
+        await _container.UpsertItemAsync(chat, new PartitionKey(chat.ProjectId));
+    }
+
+    // ==========================================
+    // Üzenetek - műveletek
+    // ==========================================
+
+    public async Task<List<ChatMessage>> GetChatMessagesAsync(string projectId, string chatId)
+    {
+        // Az üzeneteket időrendben kérjük le az adott partícióból és chatből
+        var query = new QueryDefinition("SELECT * FROM c WHERE c.projectId = @projectId AND c.chatId = @chatId AND c.type = 'Message' ORDER BY c.timestamp ASC")
+            .WithParameter("@projectId", projectId)
+            .WithParameter("@chatId", chatId);
+
+        var iterator = _container.GetItemQueryIterator<ChatMessage>(
+            query,
+            requestOptions: new QueryRequestOptions { PartitionKey = new PartitionKey(projectId) });
+
+        var results = new List<ChatMessage>();
+        while (iterator.HasMoreResults)
+        {
+            var response = await iterator.ReadNextAsync();
+            results.AddRange(response);
+        }
+        return results;
+    }
+
+    public async Task UpsertMessageAsync(ChatMessage message)
+    {
+        message.Type = "Message";
+        await _container.UpsertItemAsync(message, new PartitionKey(message.ProjectId));
     }
 }

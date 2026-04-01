@@ -26,7 +26,7 @@
                     @foreach (var chat in standaloneChats)
                     {
                         <li class="list-group-item list-group-item-action @(activeChat == chat ? "active text-white bg-primary" : "")" 
-                            style="cursor: pointer;" @onclick="() => SelectChat(null, chat)">
+                            style="cursor: pointer;" @onclick="async () => await SelectChat(null, chat)">
                             @chat.Title
                         </li>
                     }
@@ -59,12 +59,15 @@
                             </div>
                         }
                         <ul class="list-group list-group-flush">
-                            @foreach (var pChat in proj.Chats)
+                            @if (projectChatsByProject.ContainsKey(proj.Id))
                             {
-                                <li class="list-group-item list-group-item-action p-2 @(activeChat == pChat ? "active text-white bg-primary" : "")"
-                                    style="cursor: pointer; padding-left: 20px;" @onclick="() => SelectChat(proj, pChat)">
-                                    @pChat.Title
-                                </li>
+                                @foreach (var pChat in projectChatsByProject[proj.Id])
+                                {
+                                    <li class="list-group-item list-group-item-action p-2 @(activeChat == pChat ? "active text-white bg-primary" : "")"
+                                        style="cursor: pointer; padding-left: 20px;" @onclick="async () => await SelectChat(proj, pChat)">
+                                        @pChat.Title
+                                    </li>
+                                }
                             }
                         </ul>
                     </div>
@@ -101,11 +104,11 @@
                 }
 
                 <div class="chat-box flex-grow-1 border rounded p-3 mb-3 d-flex flex-column" style="overflow-y: auto; background: #f8f9fa;">
-                    @if (activeChat.Messages.Count == 0)
+                    @if (currentMessages.Count == 0)
                     {
                         <div class="text-center text-muted mt-5">Nincsenek üzenetek ebben a chatben. Írj valamit a kezdéshez!</div>
                     }
-                    @foreach (var msg in activeChat.Messages.Where(m => m.Role != "system"))
+                    @foreach (var msg in currentMessages.Where(m => m.Role != "system"))
                     {
                         <div class="mb-2 text-@(msg.Role == "user" ? "end" : "start")">
                             <span class="badge @(msg.Role == "user" ? "bg-primary" : "bg-light text-dark border") p-2 text-start text-wrap" 
@@ -167,6 +170,12 @@
     private List<Project> projects = new();
     private List<ChatSession> standaloneChats = new();
 
+    // Kényelmi szótár a projektek chatjeinek tárolásához a UI-ban
+    private Dictionary<string, List<ChatSession>> projectChatsByProject = new();
+
+    // Az éppen aktív chat üzeneteinek listája
+    private List<ChatMessage> currentMessages = new();
+
     // Állapotok a bal panelhez
     private string newStandaloneChatTitle = "";
     private string newProjectName = "";
@@ -193,6 +202,14 @@
     {
         projects = await CosmosDb.GetProjectsAsync();
         standaloneChats = await CosmosDb.GetStandaloneChatsAsync();
+
+        // Minden projekthez lekérjük a chatjeit
+        projectChatsByProject.Clear();
+        foreach (var proj in projects)
+        {
+            var pChats = await CosmosDb.GetProjectChatsAsync(proj.Id);
+            projectChatsByProject[proj.Id] = pChats;
+        }
     }
 
     private async Task CreateStandaloneChat()
@@ -202,7 +219,7 @@
         await CosmosDb.UpsertStandaloneChatAsync(chat);
         standaloneChats.Add(chat);
         newStandaloneChatTitle = "";
-        SelectChat(null, chat);
+        await SelectChat(null, chat);
     }
 
     private async Task CreateProject()
@@ -223,23 +240,32 @@
     private async Task CreateProjectChat()
     {
         if (projectToCreateChatFor == null || string.IsNullOrWhiteSpace(newProjectChatTitle)) return;
+
         var pChat = new ChatSession { Title = newProjectChatTitle };
-        projectToCreateChatFor.Chats.Add(pChat);
-        await CosmosDb.UpsertProjectAsync(projectToCreateChatFor);
+        await CosmosDb.UpsertProjectChatAsync(pChat, projectToCreateChatFor.Id);
+
+        if (!projectChatsByProject.ContainsKey(projectToCreateChatFor.Id))
+            projectChatsByProject[projectToCreateChatFor.Id] = new List<ChatSession>();
+
+        projectChatsByProject[projectToCreateChatFor.Id].Add(pChat);
         newProjectChatTitle = "";
 
         var proj = projectToCreateChatFor;
         projectToCreateChatFor = null; // input elrejtése
-        SelectChat(proj, pChat);
+        await SelectChat(proj, pChat);
     }
 
-    private void SelectChat(Project? project, ChatSession chat)
+    private async Task SelectChat(Project? project, ChatSession chat)
     {
         activeProject = project;
         activeChat = chat;
         showSummary = false;
         userInput = "";
         useDocumentContext = !string.IsNullOrEmpty(chat.ActiveDocumentText);
+
+        currentMessages.Clear();
+        var projectIdForQueries = project != null ? project.Id : chat.Id;
+        currentMessages = await CosmosDb.GetChatMessagesAsync(projectIdForQueries, chat.Id);
     }
 
     private async Task HandleFileSelected(InputFileChangeEventArgs e)
@@ -254,7 +280,7 @@
             useDocumentContext = true; // Auto-bekapcsolás csatolás után
 
             // Mentjük az új állapotot
-            if (activeProject != null) await CosmosDb.UpsertProjectAsync(activeProject);
+            if (activeProject != null) await CosmosDb.UpsertProjectChatAsync(activeChat, activeProject.Id);
             else await CosmosDb.UpsertStandaloneChatAsync(activeChat);
         }
         catch (Exception ex)
@@ -274,7 +300,7 @@
         {
             activeChat.ActiveDocumentText = null;
             useDocumentContext = false;
-            if (activeProject != null) await CosmosDb.UpsertProjectAsync(activeProject);
+            if (activeProject != null) await CosmosDb.UpsertProjectChatAsync(activeChat, activeProject.Id);
             else await CosmosDb.UpsertStandaloneChatAsync(activeChat);
         }
     }
@@ -293,16 +319,16 @@
         {
             if (activeProject != null)
             {
-                await ChatSvc.ProcessProjectMessageAsync(activeProject, activeChat, prompt, useDocumentContext);
+                await ChatSvc.ProcessProjectMessageAsync(activeProject, activeChat, currentMessages, prompt, useDocumentContext);
             }
             else
             {
-                await ChatSvc.ProcessStandaloneMessageAsync(activeChat, prompt, useDocumentContext);
+                await ChatSvc.ProcessStandaloneMessageAsync(activeChat, currentMessages, prompt, useDocumentContext);
             }
         }
         catch (Exception ex)
         {
-            activeChat.Messages.Add(new FunChatBotApp.Models.ChatMessage { Role = "assistant", Content = $"Hiba: {ex.Message}" });
+            currentMessages.Add(new FunChatBotApp.Models.ChatMessage { Role = "assistant", Content = $"Hiba: {ex.Message}" });
         }
         finally
         {

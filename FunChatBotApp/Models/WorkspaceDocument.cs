@@ -1,4 +1,5 @@
 using Newtonsoft.Json;
+using System;
 
 namespace FunChatBotApp.Models;
 
@@ -12,12 +13,12 @@ public abstract class WorkspaceDocument
     [JsonProperty("projectId")]
     public string ProjectId { get; set; } = string.Empty;
 
-    // Megkülönbözteti, hogy a dokumentum "Project" vagy "StandaloneChat"
+    // Megkülönbözteti, hogy a dokumentum "Project", "StandaloneChat" vagy "Message"
     [JsonProperty("type")]
     public string Type { get; set; } = string.Empty;
 }
 
-// 1. Projekt osztály, ami tartalmazza a chateket
+// 1. Projekt osztály, ami 1 db dokumentum a Cosmos DB-ben
 public class Project : WorkspaceDocument
 {
     public Project()
@@ -26,20 +27,19 @@ public class Project : WorkspaceDocument
     }
 
     public string Name { get; set; } = string.Empty;
-    
+
     // A közös memória (Summary) a projekthez tartozó chatek alapján
     public string JointSummary { get; set; } = string.Empty;
 
-    // A projekt tartalmazza a saját chatjeit
-    public List<ChatSession> Chats { get; set; } = new();
+    // Nincs List<ChatSession>, a CosmosDB-ből kérdezzük le külön
 }
 
-// 2. ChatSession osztály (Lehet egyedülálló, vagy egy Projekt része)
+// 2. ChatSession osztály (Ez is 1 db önálló dokumentum)
 public class ChatSession : WorkspaceDocument
 {
     public ChatSession()
     {
-        Type = "StandaloneChat"; // Ha projekten belül van, a "Type" mezőt a Cosmos DB nem root szinten fogja értelmezni
+        Type = "StandaloneChat"; 
     }
 
     public string Title { get; set; } = string.Empty;
@@ -47,12 +47,21 @@ public class ChatSession : WorkspaceDocument
     // Az aktuális beszélgetéshez csatolt dokumentum nyers szövege
     public string? ActiveDocumentText { get; set; }
 
-    public List<ChatMessage> Messages { get; set; } = new();
+    // Nincs List<ChatMessage>, a CosmosDB-ből kérdezzük le külön
 }
 
-// 3. ChatMessage osztály
-public class ChatMessage
+// 3. ChatMessage osztály (Minden üzenet 1 új dokumentum lesz)
+public class ChatMessage : WorkspaceDocument
 {
+    public ChatMessage()
+    {
+        Type = "Message";
+    }
+
+    // Melyik chathez tartozik
+    [JsonProperty("chatId")]
+    public string ChatId { get; set; } = string.Empty;
+
     [JsonProperty("role")]
     public string Role { get; set; } = string.Empty; // "user", "assistant", vagy "system"
 
