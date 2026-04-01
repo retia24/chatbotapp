@@ -178,6 +178,34 @@ public class CosmosDbService
         return results;
     }
 
+    public async Task<List<ChatMessage>> GetProjectMessagesAsync(string projectId, int? slidingWindowSize = null)
+    {
+        var query = new QueryDefinition("SELECT * FROM c WHERE c.projectId = @projectId AND c.type = 'Message' ORDER BY c.timestamp ASC")
+            .WithParameter("@projectId", projectId);
+
+        var iterator = _container.GetItemQueryIterator<ChatMessage>(
+            query,
+            requestOptions: new QueryRequestOptions { PartitionKey = new PartitionKey(projectId) });
+
+        var results = new List<ChatMessage>();
+        while (iterator.HasMoreResults)
+        {
+            var response = await iterator.ReadNextAsync();
+            results.AddRange(response);
+        }
+
+        if (slidingWindowSize.HasValue && slidingWindowSize.Value > 0)
+        {
+            results = results
+                .GroupBy(m => m.ChatId)
+                .SelectMany(g => g.TakeLast(slidingWindowSize.Value))
+                .OrderBy(m => m.Timestamp)
+                .ToList();
+        }
+
+        return results;
+    }
+
     public async Task UpsertMessageAsync(ChatMessage message)
     {
         message.Type = "Message";

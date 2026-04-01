@@ -77,9 +77,19 @@ public class ChatService
             openAiHistory.Add(new SystemChatMessage($"Reference Document:\n<document>\n{textToInject}\n</document>"));
         }
 
-        // Sliding window az aktuális listából
-        var recentMessages = currentMessages.TakeLast(SlidingWindowSize);
-        foreach (var msg in recentMessages)
+        // Sliding window a teljes projekt üzeneteiből
+        var allProjectMessages = await _cosmosDb.GetProjectMessagesAsync(project.Id, SlidingWindowSize);
+        if (!allProjectMessages.Any(m => m.Id == userMsg.Id))
+        {
+            allProjectMessages.Add(userMsg);
+            allProjectMessages = allProjectMessages
+                .GroupBy(m => m.ChatId)
+                .SelectMany(g => g.TakeLast(SlidingWindowSize))
+                .OrderBy(m => m.Timestamp)
+                .ToList();
+        }
+
+        foreach (var msg in allProjectMessages)
         {
             if (msg.Role == "user")
                 openAiHistory.Add(new UserChatMessage(msg.Content));
@@ -104,11 +114,13 @@ public class ChatService
         currentMessages.Add(assistantMsg);
         await _cosmosDb.UpsertMessageAsync(assistantMsg);
 
+        allProjectMessages.Add(assistantMsg);
+
         // 5. Szummázás és mentés
         // Ha elértük a limitet, akkor összevonjuk a mostani dolgokat a JointSummary-vel
-        if (currentMessages.Count(m => m.Role == "user") % SummarizationTrigger == 0)
+        if (allProjectMessages.Count(m => m.Role == "user") % SummarizationTrigger == 0)
         {
-            await UpdateProjectJointSummaryAsync(project, currentMessages);
+            await UpdateProjectJointSummaryAsync(project, allProjectMessages);
         }
 
         return assistantResponse;
