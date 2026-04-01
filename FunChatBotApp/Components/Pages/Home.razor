@@ -1,51 +1,227 @@
 ﻿@page "/"
-@using OpenAI.Chat
+@using FunChatBotApp.Models
+@using FunChatBotApp.Services
 @inject ChatService ChatSvc
 @inject DocumentService DocSvc
+@inject CosmosDbService CosmosDb
 @rendermode InteractiveServer
 
-<PageTitle>AI Chat Asszisztens</PageTitle>
+<PageTitle>AI Chat Workspace</PageTitle>
 
-<div class="container mt-4">
-    <h3>Beszélgetés az MI-vel</h3>
+<div class="container-fluid mt-4">
+    <div class="row">
+        <!-- Sidebar / Workspace Menu -->
+        <div class="col-md-3 border-end" style="height: 85vh; overflow-y: auto;">
+            <h4>Munkaterület</h4>
 
-    <div class="chat-box border rounded p-3 mb-3" style="height: 400px; overflow-y: auto;">
-        @foreach (var msg in chatHistory.Where(m => m is not SystemChatMessage))
-        {
-            <div class="mb-2 text-@(msg is UserChatMessage ? "end" : "start")">
-                <span class="badge @(msg is UserChatMessage ? "bg-primary" : "bg-success") p-2" style="font-size: 1rem; white-space: pre-wrap; text-align: left; display: inline-block; max-width: 80%;">
-                    @GetMessageContent(msg)
-                </span>
+            <!-- Standalone Chats -->
+            <div class="mb-4">
+                <h5>Egyszerű chatek</h5>
+                <div class="input-group mb-2">
+                    <input type="text" class="form-control form-control-sm" @bind="newStandaloneChatTitle" placeholder="Új chat címe..." />
+                    <button class="btn btn-sm btn-outline-primary" @onclick="CreateStandaloneChat">Létrehoz</button>
+                </div>
+                <ul class="list-group list-group-flush">
+                    @foreach (var chat in standaloneChats)
+                    {
+                        <li class="list-group-item list-group-item-action @(activeChat == chat ? "active text-white bg-primary" : "")" 
+                            style="cursor: pointer;" @onclick="() => SelectChat(null, chat)">
+                            @chat.Title
+                        </li>
+                    }
+                </ul>
             </div>
-        }
-    </div>
 
-    <div class="input-group mb-3">
-        <InputFile OnChange="HandleFileSelected" class="form-control" accept=".pdf,.docx,.txt,.pptx" />
-    </div>
+            <!-- Projects -->
+            <div>
+                <h5>Projektek</h5>
+                <div class="input-group mb-2">
+                    <input type="text" class="form-control form-control-sm" @bind="newProjectName" placeholder="Új projekt neve..." />
+                    <button class="btn btn-sm btn-outline-success" @onclick="CreateProject">Létrehoz</button>
+                </div>
 
-    @if (isProcessingFile)
-    {
-        <div class="alert alert-info">Fájl feldolgozása folyamatban...</div>
-    }
+                @foreach (var proj in projects)
+                {
+                    <div class="card mb-2">
+                        <div class="card-header d-flex justify-content-between align-items-center p-2">
+                            <strong>@proj.Name</strong>
+                            <button class="btn btn-sm btn-outline-secondary py-0" style="font-size: 0.8rem;" @onclick="() => PromptNewProjectChat(proj)">+ Chat</button>
+                        </div>
+                        @if (projectToCreateChatFor == proj)
+                        {
+                            <div class="card-body p-2 border-bottom">
+                                <div class="input-group input-group-sm">
+                                    <input type="text" class="form-control" @bind="newProjectChatTitle" placeholder="Chat címe..." />
+                                    <button class="btn btn-outline-primary" @onclick="CreateProjectChat">Hozzáad</button>
+                                    <button class="btn btn-outline-danger" @onclick="() => projectToCreateChatFor = null">X</button>
+                                </div>
+                            </div>
+                        }
+                        <ul class="list-group list-group-flush">
+                            @foreach (var pChat in proj.Chats)
+                            {
+                                <li class="list-group-item list-group-item-action p-2 @(activeChat == pChat ? "active text-white bg-primary" : "")"
+                                    style="cursor: pointer; padding-left: 20px;" @onclick="() => SelectChat(proj, pChat)">
+                                    @pChat.Title
+                                </li>
+                            }
+                        </ul>
+                    </div>
+                }
+            </div>
+        </div>
 
-    <div class="input-group">
-        <input type="text" class="form-control" @bind="userInput" @bind:event="oninput" @onkeyup="HandleKeyUp" placeholder="Írj egy üzenetet..." disabled="@isTyping" />
-        <button class="btn btn-primary" @onclick="SendMessage" disabled="@(isTyping || string.IsNullOrWhiteSpace(userInput))">Küldés</button>
+        <!-- Chat Area -->
+        <div class="col-md-9 d-flex flex-column" style="height: 85vh;">
+            @if (activeChat == null)
+            {
+                <div class="d-flex justify-content-center align-items-center h-100 border rounded bg-light">
+                    <h4 class="text-muted">Válassz ki vagy hozz létre egy chatet a kezdéshez!</h4>
+                </div>
+            }
+            else
+            {
+                <div class="d-flex justify-content-between border-bottom pb-2 mb-2">
+                    <h4>@activeChat.Title <span class="text-muted" style="font-size: 1rem;">@(activeProject != null ? $" ({activeProject.Name} projekt)" : "")</span></h4>
+                    @if (activeProject != null && !string.IsNullOrEmpty(activeProject.JointSummary))
+                    {
+                        <button class="btn btn-sm btn-info" title="@activeProject.JointSummary" @onclick="() => showSummary = !showSummary">
+                            @(showSummary ? "Memória elrejtése" : "Memória mutatása")
+                        </button>
+                    }
+                </div>
+
+                @if (showSummary && activeProject != null)
+                {
+                    <div class="alert alert-secondary p-2 mb-2" style="max-height: 150px; overflow-y: auto;">
+                        <strong>Közös projekt memória:</strong><br />
+                        @activeProject.JointSummary
+                    </div>
+                }
+
+                <div class="chat-box flex-grow-1 border rounded p-3 mb-3 d-flex flex-column" style="overflow-y: auto; background: #f8f9fa;">
+                    @if (activeChat.Messages.Count == 0)
+                    {
+                        <div class="text-center text-muted mt-5">Nincsenek üzenetek ebben a chatben. Írj valamit a kezdéshez!</div>
+                    }
+                    @foreach (var msg in activeChat.Messages.Where(m => m.Role != "system"))
+                    {
+                        <div class="mb-2 text-@(msg.Role == "user" ? "end" : "start")">
+                            <span class="badge @(msg.Role == "user" ? "bg-primary" : "bg-success") p-2 text-start text-wrap" 
+                                  style="font-size: 1rem; max-width: 80%; color: white;">
+                                @msg.Content
+                            </span>
+                        </div>
+                    }
+                    @if (isTyping)
+                    {
+                        <div class="text-start mb-2">
+                            <span class="badge bg-secondary p-2">Az MI gépel...</span>
+                        </div>
+                    }
+                </div>
+
+                <!-- File & Input Area -->
+                <div class="mt-auto">
+                    <div class="input-group mb-2">
+                        <InputFile OnChange="HandleFileSelected" class="form-control form-control-sm" accept=".pdf,.docx,.txt,.pptx" />
+                    </div>
+                    @if (isProcessingFile)
+                    {
+                        <div class="alert alert-info py-1 mb-2">Fájl feldolgozása folyamatban...</div>
+                    }
+                    @if (!string.IsNullOrEmpty(extractedDocumentText))
+                    {
+                        <div class="alert alert-success py-1 mb-2">Fájl csatolva: kész a küldésre.</div>
+                    }
+
+                    <div class="input-group">
+                        <input type="text" class="form-control" @bind="userInput" @bind:event="oninput" @onkeyup="HandleKeyUp" placeholder="Írj egy üzenetet..." disabled="@isTyping" />
+                        <button class="btn btn-primary" @onclick="SendMessage" disabled="@(isTyping || string.IsNullOrWhiteSpace(userInput))">Küldés</button>
+                    </div>
+                </div>
+            }
+        </div>
     </div>
 </div>
 
 @code {
-    private List<ChatMessage> chatHistory = new();
+    private List<Project> projects = new();
+    private List<ChatSession> standaloneChats = new();
+
+    // Állapotok a bal panelhez
+    private string newStandaloneChatTitle = "";
+    private string newProjectName = "";
+    private Project? projectToCreateChatFor = null;
+    private string newProjectChatTitle = "";
+
+    // Aktív kiválasztás
+    private Project? activeProject = null;
+    private ChatSession? activeChat = null;
+
+    // UI állapotok
     private string userInput = "";
     private string extractedDocumentText = "";
     private bool isTyping = false;
     private bool isProcessingFile = false;
+    private bool showSummary = false;
 
-    protected override void OnInitialized()
+    protected override async Task OnInitializedAsync()
     {
-        // Rendszer prompt beállítása
-        chatHistory.Add(new SystemChatMessage("You are an AI assistant that helps people find information."));
+        await LoadWorkspaceAsync();
+    }
+
+    private async Task LoadWorkspaceAsync()
+    {
+        projects = await CosmosDb.GetProjectsAsync();
+        standaloneChats = await CosmosDb.GetStandaloneChatsAsync();
+    }
+
+    private async Task CreateStandaloneChat()
+    {
+        if (string.IsNullOrWhiteSpace(newStandaloneChatTitle)) return;
+        var chat = new ChatSession { Title = newStandaloneChatTitle };
+        await CosmosDb.UpsertStandaloneChatAsync(chat);
+        standaloneChats.Add(chat);
+        newStandaloneChatTitle = "";
+        SelectChat(null, chat);
+    }
+
+    private async Task CreateProject()
+    {
+        if (string.IsNullOrWhiteSpace(newProjectName)) return;
+        var proj = new Project { Name = newProjectName };
+        await CosmosDb.UpsertProjectAsync(proj);
+        projects.Add(proj);
+        newProjectName = "";
+    }
+
+    private void PromptNewProjectChat(Project proj)
+    {
+        projectToCreateChatFor = proj;
+        newProjectChatTitle = "";
+    }
+
+    private async Task CreateProjectChat()
+    {
+        if (projectToCreateChatFor == null || string.IsNullOrWhiteSpace(newProjectChatTitle)) return;
+        var pChat = new ChatSession { Title = newProjectChatTitle };
+        projectToCreateChatFor.Chats.Add(pChat);
+        await CosmosDb.UpsertProjectAsync(projectToCreateChatFor);
+        newProjectChatTitle = "";
+
+        var proj = projectToCreateChatFor;
+        projectToCreateChatFor = null; // input elrejtése
+        SelectChat(proj, pChat);
+    }
+
+    private void SelectChat(Project? project, ChatSession chat)
+    {
+        activeProject = project;
+        activeChat = chat;
+        showSummary = false;
+        userInput = "";
+        extractedDocumentText = "";
     }
 
     private async Task HandleFileSelected(InputFileChangeEventArgs e)
@@ -53,14 +229,12 @@
         isProcessingFile = true;
         try
         {
-            var file = e.File;
-            // 10 MB limit beállítása, és stream nyitása
-            using var stream = file.OpenReadStream(10 * 1024 * 1024);
+            using var stream = e.File.OpenReadStream(10 * 1024 * 1024);
             extractedDocumentText = await DocSvc.ExtractTextFromStreamAsync(stream);
         }
         catch (Exception ex)
         {
-            extractedDocumentText = $"Hiba a fájl olvasásakor: {ex.Message}";
+            extractedDocumentText = $"Hiba: {ex.Message}";
         }
         finally
         {
@@ -71,33 +245,47 @@
 
     private async Task SendMessage()
     {
-        if (string.IsNullOrWhiteSpace(userInput)) return;
+        if (string.IsNullOrWhiteSpace(userInput) || activeChat == null) return;
 
-        isTyping = true;
-        
         string prompt = userInput;
-
-        // Ha van feltöltött dokumentum szöveg, azt hozzácsapjuk a prompthoz
+        
+        // Ha van csatolt dokumentum, strukturáljuk át a promptot, hogy
+        // a dokumentum szövege egyértelműen el legyen különítve,
+        // a felhasználó kérdése / utasítása pedig a prompt VÉGÉRE kerüljön.
         if (!string.IsNullOrEmpty(extractedDocumentText))
         {
-            prompt += $"\n\n[Referencia dokumentum tartalma]:\n{extractedDocumentText}";
-            extractedDocumentText = ""; // Kiürítjük, hogy a következő körben ne küldjük el újra feleslegesen
+            var textToInject = extractedDocumentText;
+            
+            // Biztonsági korlát: Levágjuk a szöveget ~30 000 karakternél,
+            // hogy a modell ne dobjon token limit exceed hibát nagy fájloknál.
+            if (textToInject.Length > 30000)
+            {
+                textToInject = textToInject.Substring(0, 30000) + "\n... [TARTALOM LEVÁGVA A HOSSZ MIATT]";
+            }
+
+            prompt = $"Kérlek, használd az alábbi dokumentum tartalmát a válaszadáshoz:\n\n<document>\n{textToInject}\n</document>\n\nA fenti dokumentum alapján válaszold meg az alábbi kérdést vagy utasítást:\n{userInput}";
+            
+            extractedDocumentText = ""; // Kiürítjük a memóriából, hogy ne küldjük el újra egy sima enter-re
         }
 
-        // Felhasználói üzenet hozzáadása a történethez
-        chatHistory.Add(new UserChatMessage(prompt));
-        userInput = ""; // Input mező ürítése
-        StateHasChanged();
+        userInput = "";
+        isTyping = true;
+        StateHasChanged(); // Frissítés, hogy látszódjon a töltés
 
         try
         {
-            // Válasz lekérése az MI-től
-            var response = await ChatSvc.SendMessageAsync(chatHistory);
-            chatHistory.Add(new AssistantChatMessage(response));
+            if (activeProject != null)
+            {
+                await ChatSvc.ProcessProjectMessageAsync(activeProject, activeChat, prompt);
+            }
+            else
+            {
+                await ChatSvc.ProcessStandaloneMessageAsync(activeChat, prompt);
+            }
         }
         catch (Exception ex)
         {
-            chatHistory.Add(new AssistantChatMessage($"Hiba történt a kommunikáció során: {ex.Message}"));
+            activeChat.Messages.Add(new FunChatBotApp.Models.ChatMessage { Role = "assistant", Content = $"Hiba: {ex.Message}" });
         }
         finally
         {
@@ -109,16 +297,5 @@
     private async Task HandleKeyUp(KeyboardEventArgs e)
     {
         if (e.Key == "Enter") await SendMessage();
-    }
-
-    // Segédfüggvény a különböző típusú üzenetek tartalmának kinyerésére megjelenítéshez
-    private string GetMessageContent(ChatMessage msg)
-    {
-        return msg switch
-        {
-            UserChatMessage um => string.Join(" ", um.Content.Select(c => c.Text)),
-            AssistantChatMessage am => string.Join(" ", am.Content.Select(c => c.Text)),
-            _ => ""
-        };
     }
 }

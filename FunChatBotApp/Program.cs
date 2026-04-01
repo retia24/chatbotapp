@@ -1,5 +1,6 @@
 using Azure.Identity;
 using FunChatBotApp.Components;
+using FunChatBotApp.Services;
 
 namespace FunChatBotApp
 {
@@ -23,8 +24,10 @@ namespace FunChatBotApp
                 .AddInteractiveServerComponents();
 
             // Saját service-ek regisztrálása (ezeket a következő lépésben hozzuk létre)
+            builder.Services.AddSingleton<CosmosDbService>(); // CosmosDB-hez érdemes Singletont használni
             builder.Services.AddScoped<DocumentService>();
             builder.Services.AddScoped<ChatService>();
+            
 
             var app = builder.Build();
 
