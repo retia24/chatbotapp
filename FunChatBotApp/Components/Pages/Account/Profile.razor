@@ -1,0 +1,146 @@
+@page "/Account/Profile"
+@using System.ComponentModel.DataAnnotations
+@using Microsoft.AspNetCore.Identity
+@using FunChatBotApp.Data
+@using Microsoft.AspNetCore.Authentication
+@using Microsoft.AspNetCore.Authorization
+@inject UserManager<ApplicationUser> UserManager
+@inject SignInManager<ApplicationUser> SignInManager
+@inject NavigationManager NavigationManager
+
+@attribute [Authorize]
+
+<PageTitle>Profil módosítása</PageTitle>
+
+<div class="container mt-5">
+    <div class="row justify-content-center">
+        <div class="col-md-6 col-lg-5">
+            <div class="card shadow-sm">
+                <div class="card-body">
+                    <h3 class="card-title text-center mb-4"><i class="bi bi-person-circle text-primary me-2"></i>Profil</h3>
+                    
+                    @if (errors.Any())
+                    {
+                        <div class="alert alert-danger">
+                            <ul class="mb-0">
+                                @foreach (var error in errors)
+                                {
+                                    <li>@error</li>
+                                }
+                            </ul>
+                        </div>
+                    }
+
+                    @if (!string.IsNullOrEmpty(statusMessage))
+                    {
+                        <div class="alert alert-success">@statusMessage</div>
+                    }
+
+                    <EditForm Model="Input" method="post" OnValidSubmit="ChangePassword" FormName="changePassword">
+                        <DataAnnotationsValidator />
+                        
+                        <div class="mb-3">
+                            <label for="email" class="form-label">Regisztrált e-mail (felhasználónév)</label>
+                            <input type="text" id="email" class="form-control" value="@email" disabled />
+                        </div>
+                        
+                        <hr class="my-4" />
+                        <h5 class="mb-3">Jelszó módosítása</h5>
+
+                        <div class="mb-3">
+                            <label for="oldPassword" class="form-label">Jelenlegi jelszó</label>
+                            <InputText type="password" id="oldPassword" class="form-control" @bind-Value="Input.OldPassword" />
+                            <ValidationMessage For="() => Input.OldPassword" class="text-danger" />
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="newPassword" class="form-label">Új jelszó</label>
+                            <InputText type="password" id="newPassword" class="form-control" @bind-Value="Input.NewPassword" />
+                            <ValidationMessage For="() => Input.NewPassword" class="text-danger" />
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="confirmPassword" class="form-label">Új jelszó megerősítése</label>
+                            <InputText type="password" id="confirmPassword" class="form-control" @bind-Value="Input.ConfirmPassword" />
+                            <ValidationMessage For="() => Input.ConfirmPassword" class="text-danger" />
+                        </div>
+
+                        <button type="submit" class="btn btn-primary w-100">Mentés</button>
+                    </EditForm>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    [SupplyParameterFromForm]
+    private ChangePasswordModel Input { get; set; } = new();
+
+    [CascadingParameter]
+    private Task<AuthenticationState> authenticationStateTask { get; set; } = default!;
+
+    private List<string> errors = new();
+    private string? statusMessage;
+    private string email = "";
+    private ApplicationUser? user;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await authenticationStateTask;
+        var claimUser = authState.User;
+
+        if (claimUser.Identity?.IsAuthenticated == true)
+        {
+            user = await UserManager.GetUserAsync(claimUser);
+            if (user != null)
+            {
+                email = user.Email ?? "";
+            }
+        }
+    }
+
+    private async Task ChangePassword()
+    {
+        errors.Clear();
+        statusMessage = null;
+
+        if (user == null)
+        {
+            errors.Add("Hiba történt a felhasználó betöltésekor.");
+            return;
+        }
+
+        var result = await UserManager.ChangePasswordAsync(user, Input.OldPassword, Input.NewPassword);
+
+        if (result.Succeeded)
+        {
+            await SignInManager.RefreshSignInAsync(user);
+            statusMessage = "A jelszavad sikeresen megváltozott!";
+            Input = new ChangePasswordModel(); // Reset form
+        }
+        else
+        {
+            foreach (var error in result.Errors)
+            {
+                errors.Add(error.Description);
+            }
+        }
+    }
+
+    public class ChangePasswordModel
+    {
+        [Required(ErrorMessage = "A jelenlegi jelszó megadása kötelező")]
+        [DataType(DataType.Password)]
+        public string OldPassword { get; set; } = "";
+
+        [Required(ErrorMessage = "Az új jelszó megadása kötelező")]
+        [StringLength(100, ErrorMessage = "A {0} legalább {2} és legfeljebb {1} karakter hosszú kell legyen.", MinimumLength = 6)]
+        [DataType(DataType.Password)]
+        public string NewPassword { get; set; } = "";
+
+        [DataType(DataType.Password)]
+        [Compare("NewPassword", ErrorMessage = "Az új jelszavak nem egyeznek.")]
+        public string ConfirmPassword { get; set; } = "";
+    }
+}

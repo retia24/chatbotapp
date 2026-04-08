@@ -1,0 +1,71 @@
+@page "/Account/ConfirmEmail"
+@using System.Text
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.AspNetCore.WebUtilities
+@using FunChatBotApp.Data
+@inject UserManager<ApplicationUser> UserManager
+@inject NavigationManager NavigationManager
+
+<PageTitle>E-mail cím megerősítése</PageTitle>
+
+<div class="container mt-5">
+    <div class="row justify-content-center">
+        <div class="col-md-6 text-center">
+            <h3>E-mail cím megerősítése</h3>
+            <p class="mt-3">@statusMessage</p>
+            @if (isSuccess)
+            {
+                <a href="Account/Login" class="btn btn-primary mt-3">Bejelentkezés</a>
+            }
+        </div>
+    </div>
+</div>
+
+@code {
+    private string? statusMessage;
+    private bool isSuccess;
+
+    [SupplyParameterFromQuery]
+    private string? userId { get; set; }
+
+    [SupplyParameterFromQuery]
+    private string? code { get; set; }
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (userId is null || code is null)
+        {
+            NavigationManager.NavigateTo("/");
+            return;
+        }
+
+        var user = await UserManager.FindByIdAsync(userId);
+        if (user is null)
+        {
+            statusMessage = "Hiba történt a felhasználó betöltésekor.";
+            isSuccess = false;
+            return;
+        }
+
+        try
+        {
+            code = Encoding.UTF8.GetString(WebEncoders.Base64UrlDecode(code));
+            var result = await UserManager.ConfirmEmailAsync(user, code);
+            if (result.Succeeded)
+            {
+                statusMessage = "Köszönjük! Az e-mail címedet sikeresen megerősítetted.";
+                isSuccess = true;
+            }
+            else
+            {
+                statusMessage = "Hiba történt az e-mail cím megerősítése során.";
+                isSuccess = false;
+            }
+        }
+        catch(FormatException)
+        {
+                statusMessage = "Hiba történt az e-mail cím megerősítése során.";
+                isSuccess = false;
+        }
+    }
+}

@@ -19,11 +19,12 @@
                     <div class="d-flex align-items-center text-white">
                         <AuthorizeView>
                             <Authorized>
-                                <span class="me-3">Szia, @context.User.Identity?.Name!</span>
+                                <a class="text-white text-decoration-none me-3" href="Account/Profile">
+                                    <i class="bi bi-person-circle me-1"></i> Szia, @context.User.Identity?.Name!
+                                </a>
                                 @* Ideiglenes megoldás POST kéréshez egy form-mal API-n keresztül, vagy rendes Blazor Account/Logout *@
-                                <form action="Account/Logout" method="post">
+                                <form action="Account/Logout" method="post" class="m-0">
                                     <AntiforgeryToken />
-                                    <input type="hidden" name="ReturnUrl" value="/" />
                                     <button type="submit" class="btn btn-outline-light btn-sm">Kijelentkezés</button>
                                 </form>
                             </Authorized>

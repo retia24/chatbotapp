@@ -4,6 +4,7 @@ using FunChatBotApp.Services;
 using FunChatBotApp.Data;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using System.Threading.RateLimiting;
 
 namespace FunChatBotApp
 {
@@ -31,12 +32,12 @@ namespace FunChatBotApp
 
             builder.Services.AddDatabaseDeveloperPageExceptionFilter();
 
-            builder.Services.AddIdentityCore<ApplicationUser>(options => options.SignIn.RequireConfirmedAccount = false)
+            builder.Services.AddIdentityCore<ApplicationUser>(options => options.SignIn.RequireConfirmedAccount = true)
                 .AddEntityFrameworkStores<ApplicationDbContext>()
                 .AddSignInManager()
                 .AddDefaultTokenProviders();
 
-            builder.Services.AddSingleton<IEmailSender<ApplicationUser>, IdentityNoOpEmailSender>();
+            builder.Services.AddSingleton<IEmailSender<ApplicationUser>, EmailSender>();
 
             builder.Services.AddAuthentication(options =>
                 {
@@ -56,7 +57,27 @@ namespace FunChatBotApp
             builder.Services.AddSingleton<CosmosDbService>();
             builder.Services.AddScoped<DocumentService>();
             builder.Services.AddScoped<ChatService>();
-            
+
+            // Rate Limiter beállítása
+            builder.Services.AddRateLimiter(options =>
+            {
+                options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(httpContext =>
+                    RateLimitPartition.GetFixedWindowLimiter(
+                        partitionKey: httpContext.User.Identity?.Name ?? httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+                        factory: partition => new FixedWindowRateLimiterOptions
+                        {
+                            AutoReplenishment = true,
+                            PermitLimit = 100, // Pl. max 100 kérés
+                            QueueLimit = 0,
+                            Window = TimeSpan.FromMinutes(1)
+                        }));
+
+                options.OnRejected = async (context, token) =>
+                {
+                    context.HttpContext.Response.StatusCode = StatusCodes.Status429TooManyRequests;
+                    await context.HttpContext.Response.WriteAsync("Too many requests. Please try again later.", cancellationToken: token);
+                };
+            });
 
             var app = builder.Build();
 
@@ -71,6 +92,7 @@ namespace FunChatBotApp
             }
 
             app.UseHttpsRedirection();
+            app.UseRateLimiter(); // Hozzáadjuk a Rate Limitot a pipeline-ba
             app.UseAntiforgery();
 
             app.UseAuthentication();
@@ -85,7 +107,7 @@ namespace FunChatBotApp
             {
                 await signInManager.SignOutAsync();
                 return Microsoft.AspNetCore.Http.Results.LocalRedirect(returnUrl ?? "/");
-            });
+            }).DisableAntiforgery(); // Disabling antiforgery for this minimal API endpoint as Blazor Server handles the token implicitly on forms differently.
 
             app.Run();
         }
