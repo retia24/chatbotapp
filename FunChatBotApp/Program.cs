@@ -93,10 +93,11 @@ namespace FunChatBotApp
 
             app.UseHttpsRedirection();
             app.UseRateLimiter(); // Hozzáadjuk a Rate Limitot a pipeline-ba
-            app.UseAntiforgery();
 
             app.UseAuthentication();
             app.UseAuthorization();
+
+            app.UseAntiforgery();
 
             app.MapStaticAssets();
             app.MapRazorComponents<App>()

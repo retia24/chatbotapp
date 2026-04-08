@@ -19,12 +19,30 @@
                     @(ActiveProject != null ? $"({ActiveProject.Name} projekt)" : "")
                 </span>
             </h5>
-            @if (ActiveProject != null && !string.IsNullOrEmpty(ActiveProject.JointSummary))
-            {
-                <button class="btn btn-sm @(ShowSummary ? "btn-info text-white" : "btn-outline-info") rounded-pill px-3 transition-all" title="@ActiveProject.JointSummary" @onclick="ToggleSummary">
-                    <i class="bi bi-journal-text me-1"></i> @(ShowSummary ? "Memória elrejtése" : "Memória mutatása")
-                </button>
-            }
+            <div class="d-flex align-items-center gap-2">
+                @if (ActiveProject == null && Projects.Any())
+                {
+                    <div class="d-flex align-items-center gap-1">
+                        <select class="form-select form-select-sm rounded-pill" style="max-width: 150px;" @bind="SelectedProjectIdToMove">
+                            <option value="">-- Válassz projektet --</option>
+                            @foreach(var proj in Projects)
+                            {
+                                <option value="@proj.Id">@proj.Name</option>
+                            }
+                        </select>
+                        <button class="btn btn-sm btn-outline-secondary rounded-pill px-3" disabled="@string.IsNullOrEmpty(SelectedProjectIdToMove)" @onclick="HandleMoveToProject" title="Standalone chat áthelyezése projektbe">
+                            <i class="bi bi-folder-symlink me-1"></i> Áthelyezés
+                        </button>
+                    </div>
+                }
+
+                @if (ActiveProject != null && !string.IsNullOrEmpty(ActiveProject.JointSummary))
+                {
+                    <button class="btn btn-sm @(ShowSummary ? "btn-info text-white" : "btn-outline-info") rounded-pill px-3 transition-all" title="@ActiveProject.JointSummary" @onclick="ToggleSummary">
+                        <i class="bi bi-journal-text me-1"></i> @(ShowSummary ? "Memória elrejtése" : "Memória mutatása")
+                    </button>
+                }
+            </div>
         </div>
 
         @if (ShowSummary && ActiveProject != null)
@@ -110,10 +128,18 @@
                 </div>
             }
 
+            @if (IsMovingChat)
+            {
+                <div class="alert alert-warning py-2 px-3 mb-3 d-flex align-items-center small">
+                    <span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+                    Chat áthelyezése projektbe...
+                </div>
+            }
+
             <!-- Message Input -->
             <div class="input-group shadow-sm rounded-pill overflow-hidden border">
-                <input type="text" class="form-control border-0 px-4 py-2 message-input" @bind="UserInput" @bind:event="oninput" @onkeyup="HandleKeyUp" placeholder="Írj egy üzenetet..." disabled="@IsTyping" />
-                <button class="btn btn-primary px-4 py-2" @onclick="SendMessage" disabled="@(IsTyping || string.IsNullOrWhiteSpace(UserInput))">
+                <input type="text" class="form-control border-0 px-4 py-2 message-input" @bind="UserInput" @bind:event="oninput" @onkeyup="HandleKeyUp" placeholder="Írj egy üzenetet..." disabled="@(IsTyping || IsMovingChat)" />
+                <button class="btn btn-primary px-4 py-2" @onclick="SendMessage" disabled="@(IsTyping || IsMovingChat || string.IsNullOrWhiteSpace(UserInput))">
                     Küldés
                 </button>
             </div>
@@ -124,22 +150,35 @@
 @code {
     [Parameter] public ChatSession? ActiveChat { get; set; }
     [Parameter] public Project? ActiveProject { get; set; }
+    [Parameter] public List<Project> Projects { get; set; } = new();
     [Parameter] public List<ChatMessage> CurrentMessages { get; set; } = new();
     [Parameter] public bool IsTyping { get; set; }
     [Parameter] public bool IsProcessingFile { get; set; }
+    [Parameter] public bool IsMovingChat { get; set; }
     [Parameter] public bool UseDocumentContext { get; set; }
 
     [Parameter] public EventCallback<InputFileChangeEventArgs> OnFileSelected { get; set; }
     [Parameter] public EventCallback OnClearDocument { get; set; }
     [Parameter] public EventCallback<string> OnSendMessage { get; set; }
     [Parameter] public EventCallback<bool> OnUseDocumentContextChanged { get; set; }
+    [Parameter] public EventCallback<string> OnMoveToProject { get; set; }
 
     private string UserInput { get; set; } = "";
     private bool ShowSummary { get; set; } = false;
+    private string SelectedProjectIdToMove { get; set; } = "";
 
     private void ToggleSummary()
     {
         ShowSummary = !ShowSummary;
+    }
+
+    private async Task HandleMoveToProject()
+    {
+        if (!string.IsNullOrEmpty(SelectedProjectIdToMove))
+        {
+            await OnMoveToProject.InvokeAsync(SelectedProjectIdToMove);
+            SelectedProjectIdToMove = ""; // reset after moving
+        }
     }
 
     private async Task HandleFileSelectedInternal(InputFileChangeEventArgs e)

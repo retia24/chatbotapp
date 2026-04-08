@@ -205,4 +205,31 @@ public class ChatService
         // Csak a projektet frissítjük az új összefoglalóval a Cosmosban
         await _cosmosDb.UpsertProjectAsync(project, userId);
     }
+
+    /// <summary>
+    /// Standalone chat kinevezése projekt chatté.
+    /// </summary>
+    public async Task MoveChatToProjectAsync(ChatSession chat, Project targetProject, string userId)
+    {
+        var originalProjectId = chat.ProjectId;
+
+        // 1. Chat frissítése
+        chat.ProjectId = targetProject.Id;
+        await _cosmosDb.UpsertProjectChatAsync(chat, targetProject.Id, userId);
+
+        // 2. Üzenetek mozgatása (ProjectId frissítése)
+        var messages = await _cosmosDb.GetChatMessagesAsync(originalProjectId ?? chat.Id, chat.Id, userId);
+        foreach (var msg in messages)
+        {
+            msg.ProjectId = targetProject.Id;
+            await _cosmosDb.UpsertMessageAsync(msg, userId);
+        }
+
+        // 3. Projekt joint summary frissítése a chat áthelyezése miatt
+        var allProjectMessages = await _cosmosDb.GetProjectMessagesAsync(targetProject.Id, userId, SlidingWindowSize);
+        if (allProjectMessages.Any())
+        {
+            await UpdateProjectJointSummaryAsync(targetProject, allProjectMessages, userId);
+        }
+    }
 }

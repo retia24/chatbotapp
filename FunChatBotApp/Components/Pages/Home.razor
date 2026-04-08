@@ -26,16 +26,19 @@
                  OnSelectChat="HandleSelectChat" />
 
         <!-- Chat Area -->
-        <ChatArea ActiveChat="activeChat"
+        <ChatArea Projects="projects"
+                  ActiveChat="activeChat"
                   ActiveProject="activeProject"
                   CurrentMessages="currentMessages"
                   IsTyping="isTyping"
                   IsProcessingFile="isProcessingFile"
+                  IsMovingChat="isMovingChat"
                   UseDocumentContext="useDocumentContext"
                   OnFileSelected="HandleFileSelected"
                   OnClearDocument="ClearDocument"
                   OnSendMessage="SendMessage"
-                  OnUseDocumentContextChanged="HandleUseDocumentContextChanged" />
+                  OnUseDocumentContextChanged="HandleUseDocumentContextChanged"
+                  OnMoveToProject="HandleMoveToProject" />
     </div>
 </div>
 
@@ -52,6 +55,7 @@
     private bool useDocumentContext = false;
     private bool isTyping = false;
     private bool isProcessingFile = false;
+    private bool isMovingChat = false;
 
     private string currentUserId = string.Empty;
 
@@ -118,6 +122,44 @@
         currentMessages.Clear();
         var projectIdForQueries = args.Project != null ? args.Project.Id : args.Chat.Id;
         currentMessages = await CosmosDb.GetChatMessagesAsync(projectIdForQueries, args.Chat.Id, currentUserId);
+    }
+
+    private async Task HandleMoveToProject(string targetProjectId)
+    {
+        if (activeChat == null || activeProject != null) return; // Csak egyedülálló (standalone) chatet mozgatunk
+        var targetProject = projects.FirstOrDefault(p => p.Id == targetProjectId);
+        if (targetProject == null) return;
+
+        isMovingChat = true;
+        StateHasChanged();
+        try
+        {
+            await ChatSvc.MoveChatToProjectAsync(activeChat, targetProject, currentUserId);
+
+            // Frissíteni kell a munkaterületet, hogy a menü és az elemek szinkronba kerüljenek
+            await LoadWorkspaceAsync();
+
+            // Kijelöljük a már áthelyezett chatet a projekt alatt
+            var movedChat = projectChatsByProject[targetProject.Id].FirstOrDefault(c => c.Id == activeChat.Id);
+            if (movedChat != null)
+            {
+                await HandleSelectChat((targetProject, movedChat));
+            }
+            else
+            {
+                activeChat = null;
+                activeProject = null;
+            }
+        }
+        catch (Exception ex)
+        {
+            currentMessages.Add(new FunChatBotApp.Models.ChatMessage { Role = "assistant", Content = $"Hiba az áthelyezés során: {ex.Message}" });
+        }
+        finally
+        {
+            isMovingChat = false;
+            StateHasChanged();
+        }
     }
 
     private async Task HandleFileSelected(Microsoft.AspNetCore.Components.Forms.InputFileChangeEventArgs e)
