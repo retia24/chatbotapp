@@ -118,6 +118,11 @@
                         Dokumentum kontextus @(UseDocumentContext ? "(Aktív)" : "(Inaktív)")
                     </label>
                 </div>
+
+                <div class="d-flex align-items-center ms-auto gap-2">
+                    <label for="maxSentences" class="form-label mb-0 small text-muted text-nowrap" title="0 = nincs limit">Max mondatok: @(MaxSentences > 0 ? MaxSentences : "Nincs limit")</label>
+                    <input type="range" class="form-range custom-range" id="maxSentences" min="0" max="10" @bind="MaxSentences" title="Válasz hosszának maximalizálása" style="width: 100px;">
+                </div>
             </div>
             
             @if (IsProcessingFile)
@@ -159,11 +164,12 @@
 
     [Parameter] public EventCallback<InputFileChangeEventArgs> OnFileSelected { get; set; }
     [Parameter] public EventCallback OnClearDocument { get; set; }
-    [Parameter] public EventCallback<string> OnSendMessage { get; set; }
+    [Parameter] public EventCallback<(string, int)> OnSendMessage { get; set; }
     [Parameter] public EventCallback<bool> OnUseDocumentContextChanged { get; set; }
     [Parameter] public EventCallback<string> OnMoveToProject { get; set; }
 
     private string UserInput { get; set; } = "";
+    private int MaxSentences { get; set; } = 0;
     private bool ShowSummary { get; set; } = false;
     private string SelectedProjectIdToMove { get; set; } = "";
 
@@ -196,7 +202,7 @@
         if (string.IsNullOrWhiteSpace(UserInput) || ActiveChat == null) return;
         var input = UserInput;
         UserInput = "";
-        await OnSendMessage.InvokeAsync(input);
+        await OnSendMessage.InvokeAsync((input, MaxSentences));
     }
 
     private async Task HandleKeyUp(KeyboardEventArgs e)

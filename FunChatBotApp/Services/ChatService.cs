@@ -44,7 +44,7 @@ public class ChatService
     /// <summary>
     /// Projekt alapú beszélgetés - csatolt közös memóriával és szummarizációval.
     /// </summary>
-    public async Task<string> ProcessProjectMessageAsync(Project project, ChatSession chat, List<Models.ChatMessage> currentMessages, string userMessage, string userId, bool includeDocumentContext = false)
+    public async Task<string> ProcessProjectMessageAsync(Project project, ChatSession chat, List<Models.ChatMessage> currentMessages, string userMessage, string userId, bool includeDocumentContext = false, int? maxSentences = null)
     {
         // 1. Felhasználói üzenet rögzítése és mentése a CosmosDB-be
         var userMsg = new Models.ChatMessage 
@@ -76,6 +76,11 @@ public class ChatService
                 textToInject = textToInject.Substring(0, 30000) + "\n... [TARTALOM LEVÁGVA A HOSSZ MIATT]";
             }
             openAiHistory.Add(new SystemChatMessage($"Reference Document:\n<document>\n{textToInject}\n</document>"));
+        }
+
+        if (maxSentences.HasValue && maxSentences.Value > 0)
+        {
+            openAiHistory.Add(new SystemChatMessage($"Please answer in at most {maxSentences.Value} sentences."));
         }
 
         // Sliding window a teljes projekt üzeneteiből
@@ -131,7 +136,7 @@ public class ChatService
     /// <summary>
     /// "Szimpla", egyéni beszélgetés külön projekt és memória nélkül
     /// </summary>
-    public async Task<string> ProcessStandaloneMessageAsync(ChatSession chat, List<Models.ChatMessage> currentMessages, string userMessage, string userId, bool includeDocumentContext = false)
+    public async Task<string> ProcessStandaloneMessageAsync(ChatSession chat, List<Models.ChatMessage> currentMessages, string userMessage, string userId, bool includeDocumentContext = false, int? maxSentences = null)
     {
         // 1. User üzenet
         var userMsg = new Models.ChatMessage 
@@ -156,6 +161,11 @@ public class ChatService
                 textToInject = textToInject.Substring(0, 30000) + "\n... [TARTALOM LEVÁGVA A HOSSZ MIATT]";
             }
             openAiHistory.Add(new SystemChatMessage($"Reference Document:\n<document>\n{textToInject}\n</document>"));
+        }
+
+        if (maxSentences.HasValue && maxSentences.Value > 0)
+        {
+            openAiHistory.Add(new SystemChatMessage($"Please answer in at most {maxSentences.Value} sentences."));
         }
 
         var recentMessages = currentMessages.TakeLast(SlidingWindowSize);

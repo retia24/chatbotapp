@@ -203,7 +203,7 @@
         useDocumentContext = value;
     }
 
-    private async Task SendMessage(string prompt)
+    private async Task SendMessage((string Prompt, int MaxSentences) args)
     {
         if (activeChat == null) return;
 
@@ -214,11 +214,11 @@
         {
             if (activeProject != null)
             {
-                await ChatSvc.ProcessProjectMessageAsync(activeProject, activeChat, currentMessages, prompt, currentUserId, useDocumentContext);
+                await ChatSvc.ProcessProjectMessageAsync(activeProject, activeChat, currentMessages, args.Prompt, currentUserId, useDocumentContext, args.MaxSentences);
             }
             else
             {
-                await ChatSvc.ProcessStandaloneMessageAsync(activeChat, currentMessages, prompt, currentUserId, useDocumentContext);
+                await ChatSvc.ProcessStandaloneMessageAsync(activeChat, currentMessages, args.Prompt, currentUserId, useDocumentContext, args.MaxSentences);
             }
         }
         catch (Exception ex)
