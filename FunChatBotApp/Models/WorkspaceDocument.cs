@@ -75,3 +75,18 @@ public class ChatMessage : WorkspaceDocument
     [JsonProperty("timestamp")]
     public DateTime Timestamp { get; set; } = DateTime.UtcNow;
 }
+
+// 4. UserProfile osztály a felhasználói profilozáshoz
+public class UserProfile : WorkspaceDocument
+{
+    public UserProfile()
+    {
+        Type = "UserProfile";
+    }
+
+    [JsonProperty("summary")]
+    public string Summary { get; set; } = string.Empty;
+
+    [JsonProperty("lastUpdated")]
+    public DateTime LastUpdated { get; set; } = DateTime.UtcNow;
+}

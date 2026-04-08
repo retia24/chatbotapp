@@ -261,4 +261,30 @@ Your job is to extract the key facts, context, details, and decisions from this 
             await MergeChatIntoProjectSummaryAsync(targetProject, messages.Where(m => m.Role != "system").ToList(), userId);
         }
     }
+
+    /// <summary>
+    /// Felhasználói profil alapján frissített összefoglaló generálása.
+    /// </summary>
+    public async Task<string> GenerateUserProfileSummaryAsync(string userId, List<Models.ChatMessage> userRecentMessages)
+    {
+        var prompt = new List<OpenAI.Chat.ChatMessage>
+        {
+            new SystemChatMessage(@"Te egy profilozó AI vagy. Szeretném, ha a felhasználó korábbi beszélgetései és kérdései alapján írnál egy pontosan 10 mondatos összefoglalót róla. 
+Térj ki arra, hogy mik az érdeklődési körei, valószínűleg mivel foglalkozik, mit tanul, és milyen stílusban kommunikál. A válaszod kizárólag a profilozó szöveg legyen. Ne írj felvezetést, és pontosan 10 mondatot használj."),
+            new UserChatMessage("Itt vannak a felhasználó legutóbbi üzenetei:\n\n" +
+                string.Join("\n", userRecentMessages.Select(m => $"- {m.Content}")))
+        };
+
+        var completion = await _chatClient.CompleteChatAsync(prompt);
+        var generatedSummary = completion.Value.Content[0].Text;
+
+        // Szöveg mentése a CosmosDB-be
+        var userProfile = await _cosmosDb.GetUserProfileAsync(userId) ?? new UserProfile();
+        userProfile.Summary = generatedSummary;
+        userProfile.LastUpdated = DateTime.UtcNow;
+
+        await _cosmosDb.UpsertUserProfileAsync(userProfile, userId);
+
+        return generatedSummary;
+    }
 }

@@ -9,7 +9,7 @@ namespace FunChatBotApp.Services
     {
         private readonly ILogger<EmailSender> _logger;
         private readonly IConfiguration _configuration;
-        private readonly EmailClient _emailClient;
+        private readonly EmailClient? _emailClient;
 
         public EmailSender(ILogger<EmailSender> logger, IConfiguration configuration)
         {

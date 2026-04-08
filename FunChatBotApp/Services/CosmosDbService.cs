@@ -215,4 +215,57 @@ public class CosmosDbService
         message.UserId = userId;
         await _container.UpsertItemAsync(message, new PartitionKey(userId));
     }
+
+    // ==========================================
+    // Felhasználói Profil - műveletek
+    // ==========================================
+
+    public async Task<UserProfile?> GetUserProfileAsync(string userId)
+    {
+        try
+        {
+            // A profil id-ja megegyezik a userId-val a könnyű egyedi elérés érdekében
+            ItemResponse<UserProfile> response = await _container.ReadItemAsync<UserProfile>(userId, new PartitionKey(userId));
+            return response.Resource;
+        }
+        catch (CosmosException ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            return null;
+        }
+    }
+
+    public async Task UpsertUserProfileAsync(UserProfile profile, string userId)
+    {
+        profile.Type = "UserProfile";
+        profile.UserId = userId;
+        profile.Id = userId; // Biztosítsuk, hogy egy usernek csak 1 dokumentuma legyen
+
+        await _container.UpsertItemAsync(profile, new PartitionKey(userId));
+    }
+
+    /// <summary>
+    /// Lekéri az összes projekt és standalone chat alapján a legutóbbi felhasználói üzeneteket, max visszamenőleges limittel
+    /// </summary>
+    public async Task<List<ChatMessage>> GetRecentUserMessagesAcrossAllChatsAsync(string userId, int limit)
+    {
+        var query = new QueryDefinition("SELECT * FROM c WHERE c.userId = @userId AND c.type = 'Message' AND c.role = 'user' ORDER BY c.timestamp DESC")
+            .WithParameter("@userId", userId);
+
+        var iterator = _container.GetItemQueryIterator<ChatMessage>(
+            query,
+            requestOptions: new QueryRequestOptions { PartitionKey = new PartitionKey(userId) });
+
+        var results = new List<ChatMessage>();
+        while (iterator.HasMoreResults && results.Count < limit)
+        {
+            var response = await iterator.ReadNextAsync();
+            results.AddRange(response);
+            if(results.Count > limit)
+            {
+                results = results.Take(limit).ToList();
+                break;
+            }
+        }
+        return results;
+    }
 }

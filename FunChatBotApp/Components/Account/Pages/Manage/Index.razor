@@ -1,0 +1,193 @@
+@page "/Account/Manage"
+@using FunChatBotApp.Services
+@using FunChatBotApp.Models
+@using System.ComponentModel.DataAnnotations
+@using Microsoft.AspNetCore.Identity
+@using FunChatBotApp.Data
+@using System.Security.Claims
+@using Microsoft.AspNetCore.Components.Authorization
+
+@inject UserManager<ApplicationUser> UserManager
+@inject SignInManager<ApplicationUser> SignInManager
+@inject AuthenticationStateProvider AuthStateProvider
+@inject CosmosDbService CosmosDb
+@inject ChatService ChatSvc
+@inject NavigationManager NavManager
+
+<PageTitle>Profile</PageTitle>
+
+<h3>Profile</h3>
+
+<div class="row">
+    <div class="col-md-6 mb-4">
+        <EditForm Model="Input" FormName="profile" OnValidSubmit="OnValidSubmitAsync" method="post">
+            <DataAnnotationsValidator />
+            <ValidationSummary class="text-danger" role="alert" />
+            <div class="form-floating mb-3">
+                <input type="text" value="@username" class="form-control" placeholder="Please choose your username." disabled />
+                <label for="username" class="form-label">Username</label>
+            </div>
+            <div class="form-floating mb-3">
+                <InputText @bind-Value="Input.PhoneNumber" class="form-control" placeholder="Please enter your phone number." />
+                <label for="phone-number" class="form-label">Phone number</label>
+                <ValidationMessage For="() => Input.PhoneNumber" class="text-danger" />
+            </div>
+            <button type="submit" class="btn btn-lg btn-primary w-100">Save</button>
+        </EditForm>
+    </div>
+
+    <!-- AI Profiler Section -->
+    <div class="col-md-6">
+        <div class="card shadow-sm">
+            <div class="card-header bg-info text-white d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="bi bi-person-lines-fill me-2"></i>AI Profiler</h5>
+            </div>
+            <div class="card-body">
+                <p class="text-muted small mb-3">
+                    Ez az AI analízis az eddigi chateid (kérdéseid) alapján készít egy 10 mondatos összefoglalót az érdeklődési köreidről, esetleges foglalkozásodról és kommunikációs stílusodról.
+                </p>
+
+                @if (!string.IsNullOrEmpty(userProfile?.Summary))
+                {
+                    <div class="alert alert-secondary">
+                        <strong class="d-block mb-2">Jelenlegi profilod:</strong>
+                        <p class="mb-1">@userProfile.Summary</p>
+                        <small class="text-muted d-block mt-2">Utolsó frissítés: @userProfile.LastUpdated.ToLocalTime().ToString("yyyy. MM. dd. HH:mm")</small>
+                    </div>
+                }
+                else if (!isGenerating)
+                {
+                    <div class="alert alert-light border">
+                        Még nem generáltál profilt magadról.
+                    </div>
+                }
+
+                @if (isGenerating)
+                {
+                    <div class="alert alert-info d-flex align-items-center">
+                        <span class="spinner-border spinner-border-sm me-3" role="status" aria-hidden="true"></span>
+                        Profil analízis folyamatban... Kérlek várj! (akár fél perc is lehet)
+                    </div>
+                }
+                else
+                {
+                    <button class="btn btn-outline-info w-100 mt-2" @onclick="GenerateProfileAsync">
+                        <i class="bi bi-magic me-2"></i> Profil Személyiség Generálása/Frissítése
+                    </button>
+                }
+                
+                @if (!string.IsNullOrEmpty(errorMessage))
+                {
+                    <div class="alert alert-danger mt-3">@errorMessage</div>
+                }
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    private ApplicationUser user = default!;
+    private string? username;
+    private string? phoneNumber;
+    private string currentUserId = string.Empty;
+
+    // Profilhoz kapcsolódó propertyk
+    private UserProfile? userProfile;
+    private bool isGenerating = false;
+    private string? errorMessage;
+
+    [CascadingParameter]
+    private HttpContext HttpContext { get; set; } = default!;
+
+    [SupplyParameterFromForm]
+    private InputModel Input { get; set; } = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var claimsPrincipal = authState.User;
+
+        if (claimsPrincipal.Identity?.IsAuthenticated == true)
+        {
+            var loggedInUser = await UserManager.GetUserAsync(claimsPrincipal);
+            if (loggedInUser != null)
+            {
+                user = loggedInUser;
+                username = await UserManager.GetUserNameAsync(user);
+                phoneNumber = await UserManager.GetPhoneNumberAsync(user);
+                Input.PhoneNumber ??= phoneNumber;
+
+                // UserId kinyerése a CosmosDB queries miatt
+                currentUserId = claimsPrincipal.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? string.Empty;
+                if (!string.IsNullOrEmpty(currentUserId))
+                {
+                    await LoadUserProfile();
+                }
+            }
+        }
+    }
+
+    private async Task LoadUserProfile()
+    {
+        userProfile = await CosmosDb.GetUserProfileAsync(currentUserId);
+    }
+
+    private async Task GenerateProfileAsync()
+    {
+        if (string.IsNullOrEmpty(currentUserId)) return;
+
+        isGenerating = true;
+        errorMessage = null;
+        StateHasChanged();
+
+        try
+        {
+            // Lekérjük a logutóbbi ~100 user üzenetet az összes chatből
+            var recentUserMessages = await CosmosDb.GetRecentUserMessagesAcrossAllChatsAsync(currentUserId, 100);
+
+            if (recentUserMessages == null || !recentUserMessages.Any())
+            {
+                errorMessage = "Nincs még elég chatelőzményed a profilozáshoz! Kérlek, írj néhány kérdést a botnak.";
+            }
+            else
+            {
+                var summary = await ChatSvc.GenerateUserProfileSummaryAsync(currentUserId, recentUserMessages);
+                
+                // Újratöltjük a UI-hoz
+                await LoadUserProfile();
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Hiba történt a profil generálása során: {ex.Message}";
+        }
+        finally
+        {
+            isGenerating = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task OnValidSubmitAsync()
+    {
+        if (Input.PhoneNumber != phoneNumber)
+        {
+            var setPhoneResult = await UserManager.SetPhoneNumberAsync(user, Input.PhoneNumber);
+            if (!setPhoneResult.Succeeded)
+            {
+                NavManager.NavigateTo(NavManager.Uri, true);
+                return;
+            }
+        }
+
+        await SignInManager.RefreshSignInAsync(user);
+        NavManager.NavigateTo(NavManager.Uri, true);
+    }
+
+    private sealed class InputModel
+    {
+        [Phone]
+        [Display(Name = "Phone number")]
+        public string? PhoneNumber { get; set; }
+    }
+}

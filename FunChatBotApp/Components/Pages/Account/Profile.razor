@@ -4,21 +4,30 @@
 @using FunChatBotApp.Data
 @using Microsoft.AspNetCore.Authentication
 @using Microsoft.AspNetCore.Authorization
+@using FunChatBotApp.Services
+@using FunChatBotApp.Models
+@using System.Security.Claims
+
 @inject UserManager<ApplicationUser> UserManager
 @inject SignInManager<ApplicationUser> SignInManager
 @inject NavigationManager NavigationManager
+@inject CosmosDbService CosmosDb
+@inject ChatService ChatSvc
 
 @attribute [Authorize]
+@rendermode InteractiveServer
 
 <PageTitle>Profil módosítása</PageTitle>
 
 <div class="container mt-5">
-    <div class="row justify-content-center">
-        <div class="col-md-6 col-lg-5">
-            <div class="card shadow-sm">
+    <div class="row">
+        <!-- Változtatás: Két oszlopos layout a jelszómódosításnak és az AI Profilernek -->
+
+        <div class="col-md-6 mb-4">
+            <div class="card shadow-sm h-100">
                 <div class="card-body">
-                    <h3 class="card-title text-center mb-4"><i class="bi bi-person-circle text-primary me-2"></i>Profil</h3>
-                    
+                    <h3 class="card-title mb-4"><i class="bi bi-person-circle text-primary me-2"></i>Profil / Jelszó</h3>
+
                     @if (errors.Any())
                     {
                         <div class="alert alert-danger">
@@ -38,12 +47,12 @@
 
                     <EditForm Model="Input" method="post" OnValidSubmit="ChangePassword" FormName="changePassword">
                         <DataAnnotationsValidator />
-                        
+
                         <div class="mb-3">
-                            <label for="email" class="form-label">Regisztrált e-mail (felhasználónév)</label>
+                            <label for="email" class="form-label">Regisztrált e-mail</label>
                             <input type="text" id="email" class="form-control" value="@email" disabled />
                         </div>
-                        
+
                         <hr class="my-4" />
                         <h5 class="mb-3">Jelszó módosítása</h5>
 
@@ -58,7 +67,7 @@
                             <InputText type="password" id="newPassword" class="form-control" @bind-Value="Input.NewPassword" />
                             <ValidationMessage For="() => Input.NewPassword" class="text-danger" />
                         </div>
-                        
+
                         <div class="mb-3">
                             <label for="confirmPassword" class="form-label">Új jelszó megerősítése</label>
                             <InputText type="password" id="confirmPassword" class="form-control" @bind-Value="Input.ConfirmPassword" />
@@ -67,6 +76,54 @@
 
                         <button type="submit" class="btn btn-primary w-100">Mentés</button>
                     </EditForm>
+                </div>
+            </div>
+        </div>
+
+        <!-- AI Profiler Oszlop -->
+        <div class="col-md-6 mb-4">
+            <div class="card shadow-sm h-100 border-info">
+                <div class="card-header bg-info text-white d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0"><i class="bi bi-person-lines-fill me-2"></i>AI Profiler</h5>
+                </div>
+                <div class="card-body">
+                    <p class="text-muted small mb-3">
+                        Ez az AI analízis az eddigi chateid (kérdéseid) alapján készít egy 10 mondatos összefoglalót az érdeklődési köreidről, esetleges foglalkozásodról és kommunikációs stílusodról.
+                    </p>
+
+                    @if (!string.IsNullOrEmpty(userProfile?.Summary))
+                    {
+                        <div class="alert alert-secondary">
+                            <strong class="d-block mb-2">Jelenlegi profilod:</strong>
+                            <p class="mb-1">@userProfile.Summary</p>
+                            <small class="text-muted d-block mt-2">Utolsó frissítés: @userProfile.LastUpdated.ToLocalTime().ToString("yyyy. MM. dd. HH:mm")</small>
+                        </div>
+                    }
+                    else if (!isGeneratingProfile)
+                    {
+                        <div class="alert alert-light border">
+                            Még nem generáltál profilt magadról.
+                        </div>
+                    }
+
+                    @if (isGeneratingProfile)
+                    {
+                        <div class="alert alert-info d-flex align-items-center">
+                            <span class="spinner-border spinner-border-sm me-3" role="status" aria-hidden="true"></span>
+                            Profil analízis folyamatban... Kérlek várj! (akár fél perc is lehet)
+                        </div>
+                    }
+                    else
+                    {
+                        <button class="btn btn-outline-info w-100 mt-2" @onclick="GenerateProfileAsync">
+                            <i class="bi bi-magic me-2"></i> Profil Személyiség Generálása/Frissítése
+                        </button>
+                    }
+
+                    @if (!string.IsNullOrEmpty(profileErrorMessage))
+                    {
+                        <div class="alert alert-danger mt-3">@profileErrorMessage</div>
+                    }
                 </div>
             </div>
         </div>
@@ -84,6 +141,12 @@
     private string? statusMessage;
     private string email = "";
     private ApplicationUser? user;
+    private string currentUserId = string.Empty;
+
+    // AI Profiler changes
+    private UserProfile? userProfile;
+    private bool isGeneratingProfile = false;
+    private string? profileErrorMessage;
 
     protected override async Task OnInitializedAsync()
     {
@@ -96,7 +159,52 @@
             if (user != null)
             {
                 email = user.Email ?? "";
+                currentUserId = claimUser.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? string.Empty;
+
+                if (!string.IsNullOrEmpty(currentUserId))
+                {
+                    await LoadUserProfile();
+                }
             }
+        }
+    }
+
+    private async Task LoadUserProfile()
+    {
+        userProfile = await CosmosDb.GetUserProfileAsync(currentUserId);
+    }
+
+    private async Task GenerateProfileAsync()
+    {
+        if (string.IsNullOrEmpty(currentUserId)) return;
+
+        isGeneratingProfile = true;
+        profileErrorMessage = null;
+        StateHasChanged();
+
+        try
+        {
+            // Lekérjük a legutóbbi ~100 user üzenetet
+            var recentUserMessages = await CosmosDb.GetRecentUserMessagesAcrossAllChatsAsync(currentUserId, 100);
+
+            if (recentUserMessages == null || !recentUserMessages.Any())
+            {
+                profileErrorMessage = "Nincs még elég chatelőzményed a profilozáshoz! Kérlek, írj néhány kérdést a botnak.";
+            }
+            else
+            {
+                var summary = await ChatSvc.GenerateUserProfileSummaryAsync(currentUserId, recentUserMessages);
+                await LoadUserProfile();
+            }
+        }
+        catch (Exception ex)
+        {
+            profileErrorMessage = $"Hiba történt a profil generálása során: {ex.Message}";
+        }
+        finally
+        {
+            isGeneratingProfile = false;
+            StateHasChanged();
         }
     }
 
