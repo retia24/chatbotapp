@@ -194,15 +194,44 @@ public class ChatService
     {
         var summaryPrompt = new List<OpenAI.Chat.ChatMessage>
         {
-            new SystemChatMessage("You are a helpful assistant that summarizes key information, facts, and decisions from a conversation. Blend the recent conversation with the existing project summary. Return only the updated summary. Be concise."),
-            new UserChatMessage($"Current Project Summary: {project.JointSummary ?? "None"}\n\nRecent Conversation to summarize:\n" +
-                string.Join("\n", currentMessages.TakeLast(SummarizationTrigger * 2).Select(m => $"{m.Role}: {m.Content}"))) // *2 mert egy emberi és egy AI válasz = 1 pár
+            new SystemChatMessage(@"You are an AI assistant tasked with maintaining a project's global memory. 
+Your goal is to update the existing project summary by incorporating new key information, facts, and decisions from the recent conversation.
+- Do NOT rewrite or drop important previously established facts unless the new conversation explicitly contradicts them.
+- Keep the summary clear, well-structured, and concise.
+- The summary length MUST be exactly 15 sentences.
+- Output ONLY the newly updated, blended summary text and nothing else."),
+            new UserChatMessage($"Existing Project Summary:\n{project.JointSummary ?? "None"}\n\nRecent Conversation to summarize:\n" +
+                string.Join("\n", currentMessages.TakeLast(SummarizationTrigger * 2).Select(m => $"{m.Role}: {m.Content}")))
         };
 
         var summaryCompletion = await _chatClient.CompleteChatAsync(summaryPrompt);
         project.JointSummary = summaryCompletion.Value.Content[0].Text;
 
         // Csak a projektet frissítjük az új összefoglalóval a Cosmosban
+        await _cosmosDb.UpsertProjectAsync(project, userId);
+    }
+
+    /// <summary>
+    /// Chat áthelyezésekor használt, az egész chatet beolvasztó összegzés.
+    /// </summary>
+    private async Task MergeChatIntoProjectSummaryAsync(Project project, List<Models.ChatMessage> movedMessages, string userId)
+    {
+        var summaryPrompt = new List<OpenAI.Chat.ChatMessage>
+        {
+            new SystemChatMessage(@"You are an AI assistant tasked with updating a project's global memory. 
+A new chat thread has been moved into this project. 
+Your job is to extract the key facts, context, details, and decisions from this entirely new chat thread and integrate them intelligently into the existing project summary.
+- Retain previously established facts in the project summary, unless updated by the new thread.
+- Ensure the newly integrated context is well-structured and concise.
+- The summary length MUST be exactly 15 sentences.
+- Output ONLY the newly updated, blended summary text and nothing else."),
+            new UserChatMessage($"Existing Project Summary:\n{project.JointSummary ?? "None"}\n\nNew Chat Thread to Merge:\n" +
+                string.Join("\n", movedMessages.TakeLast(50).Select(m => $"{m.Role}: {m.Content}")))
+        };
+
+        var summaryCompletion = await _chatClient.CompleteChatAsync(summaryPrompt);
+        project.JointSummary = summaryCompletion.Value.Content[0].Text;
+
         await _cosmosDb.UpsertProjectAsync(project, userId);
     }
 
@@ -226,10 +255,10 @@ public class ChatService
         }
 
         // 3. Projekt joint summary frissítése a chat áthelyezése miatt
-        var allProjectMessages = await _cosmosDb.GetProjectMessagesAsync(targetProject.Id, userId, SlidingWindowSize);
-        if (allProjectMessages.Any())
+        // Itt nem csak egy általános ablakot (SlidingWindow) kérünk le, hanem az imént mozgatott üzeneteket blendeljük bele a projekt memóriájába!
+        if (messages.Any(m => m.Role != "system"))
         {
-            await UpdateProjectJointSummaryAsync(targetProject, allProjectMessages, userId);
+            await MergeChatIntoProjectSummaryAsync(targetProject, messages.Where(m => m.Role != "system").ToList(), userId);
         }
     }
 }
