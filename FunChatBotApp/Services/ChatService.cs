@@ -44,18 +44,19 @@ public class ChatService
     /// <summary>
     /// Projekt alapú beszélgetés - csatolt közös memóriával és szummarizációval.
     /// </summary>
-    public async Task<string> ProcessProjectMessageAsync(Project project, ChatSession chat, List<Models.ChatMessage> currentMessages, string userMessage, bool includeDocumentContext = false)
+    public async Task<string> ProcessProjectMessageAsync(Project project, ChatSession chat, List<Models.ChatMessage> currentMessages, string userMessage, string userId, bool includeDocumentContext = false)
     {
         // 1. Felhasználói üzenet rögzítése és mentése a CosmosDB-be
         var userMsg = new Models.ChatMessage 
         { 
             ChatId = chat.Id,
             ProjectId = project.Id,
+            UserId = userId,
             Role = "user", 
             Content = userMessage 
         };
         currentMessages.Add(userMsg);
-        await _cosmosDb.UpsertMessageAsync(userMsg);
+        await _cosmosDb.UpsertMessageAsync(userMsg, userId);
 
         // 2. OpenAI kontextus építése (Sliding window + Joint Summary)
         var openAiHistory = new List<OpenAI.Chat.ChatMessage>();
@@ -78,7 +79,7 @@ public class ChatService
         }
 
         // Sliding window a teljes projekt üzeneteiből
-        var allProjectMessages = await _cosmosDb.GetProjectMessagesAsync(project.Id, SlidingWindowSize);
+        var allProjectMessages = await _cosmosDb.GetProjectMessagesAsync(project.Id, userId, SlidingWindowSize);
         if (!allProjectMessages.Any(m => m.Id == userMsg.Id))
         {
             allProjectMessages.Add(userMsg);
@@ -108,11 +109,12 @@ public class ChatService
         {
             ChatId = chat.Id,
             ProjectId = project.Id,
+            UserId = userId,
             Role = "assistant",
             Content = assistantResponse
         };
         currentMessages.Add(assistantMsg);
-        await _cosmosDb.UpsertMessageAsync(assistantMsg);
+        await _cosmosDb.UpsertMessageAsync(assistantMsg, userId);
 
         allProjectMessages.Add(assistantMsg);
 
@@ -120,7 +122,7 @@ public class ChatService
         // Ha elértük a limitet, akkor összevonjuk a mostani dolgokat a JointSummary-vel
         if (allProjectMessages.Count(m => m.Role == "user") % SummarizationTrigger == 0)
         {
-            await UpdateProjectJointSummaryAsync(project, allProjectMessages);
+            await UpdateProjectJointSummaryAsync(project, allProjectMessages, userId);
         }
 
         return assistantResponse;
@@ -129,18 +131,19 @@ public class ChatService
     /// <summary>
     /// "Szimpla", egyéni beszélgetés külön projekt és memória nélkül
     /// </summary>
-    public async Task<string> ProcessStandaloneMessageAsync(ChatSession chat, List<Models.ChatMessage> currentMessages, string userMessage, bool includeDocumentContext = false)
+    public async Task<string> ProcessStandaloneMessageAsync(ChatSession chat, List<Models.ChatMessage> currentMessages, string userMessage, string userId, bool includeDocumentContext = false)
     {
         // 1. User üzenet
         var userMsg = new Models.ChatMessage 
         { 
             ChatId = chat.Id,
             ProjectId = chat.ProjectId,
+            UserId = userId,
             Role = "user", 
             Content = userMessage 
         };
         currentMessages.Add(userMsg);
-        await _cosmosDb.UpsertMessageAsync(userMsg);
+        await _cosmosDb.UpsertMessageAsync(userMsg, userId);
 
         var openAiHistory = new List<OpenAI.Chat.ChatMessage>();
 
@@ -174,11 +177,12 @@ public class ChatService
         {
             ChatId = chat.Id,
             ProjectId = chat.ProjectId,
+            UserId = userId,
             Role = "assistant",
             Content = assistantResponse
         };
         currentMessages.Add(assistantMsg);
-        await _cosmosDb.UpsertMessageAsync(assistantMsg);
+        await _cosmosDb.UpsertMessageAsync(assistantMsg, userId);
 
         return assistantResponse;
     }
@@ -186,7 +190,7 @@ public class ChatService
     /// <summary>
     /// Belső metódus a projekt szintű szummarizációhoz
     /// </summary>
-    private async Task UpdateProjectJointSummaryAsync(Project project, List<Models.ChatMessage> currentMessages)
+    private async Task UpdateProjectJointSummaryAsync(Project project, List<Models.ChatMessage> currentMessages, string userId)
     {
         var summaryPrompt = new List<OpenAI.Chat.ChatMessage>
         {
@@ -199,6 +203,6 @@ public class ChatService
         project.JointSummary = summaryCompletion.Value.Content[0].Text;
 
         // Csak a projektet frissítjük az új összefoglalóval a Cosmosban
-        await _cosmosDb.UpsertProjectAsync(project);
+        await _cosmosDb.UpsertProjectAsync(project, userId);
     }
 }

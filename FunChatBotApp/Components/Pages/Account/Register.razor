@@ -1,0 +1,111 @@
+@page "/Account/Register"
+@using System.ComponentModel.DataAnnotations
+@using Microsoft.AspNetCore.Identity
+@using FunChatBotApp.Data
+@using Microsoft.AspNetCore.Authentication
+@inject UserManager<ApplicationUser> UserManager
+@inject SignInManager<ApplicationUser> SignInManager
+@inject NavigationManager NavigationManager
+
+<PageTitle>Regisztráció</PageTitle>
+
+<div class="container mt-5">
+    <div class="row justify-content-center">
+        <div class="col-md-6 col-lg-4">
+            <div class="card shadow-sm">
+                <div class="card-body">
+                    <h3 class="card-title text-center mb-4">Regisztráció</h3>
+                    
+                    @if (errors.Any())
+                    {
+                        <div class="alert alert-danger">
+                            <ul class="mb-0">
+                                @foreach (var error in errors)
+                                {
+                                    <li>@error</li>
+                                }
+                            </ul>
+                        </div>
+                    }
+
+                    <EditForm Model="Input" method="post" OnValidSubmit="RegisterUser" FormName="register">
+                        <DataAnnotationsValidator />
+                        
+                        <div class="mb-3">
+                            <label for="email" class="form-label">Email</label>
+                            <InputText id="email" class="form-control" @bind-Value="Input.Email" />
+                            <ValidationMessage For="() => Input.Email" class="text-danger" />
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="password" class="form-label">Jelszó</label>
+                            <InputText type="password" id="password" class="form-control" @bind-Value="Input.Password" />
+                            <ValidationMessage For="() => Input.Password" class="text-danger" />
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="confirmPassword" class="form-label">Jelszó újra</label>
+                            <InputText type="password" id="confirmPassword" class="form-control" @bind-Value="Input.ConfirmPassword" />
+                            <ValidationMessage For="() => Input.ConfirmPassword" class="text-danger" />
+                        </div>
+
+                        <button type="submit" class="btn btn-primary w-100">Regisztráció</button>
+                    </EditForm>
+                    
+                    <div class="mt-3 text-center">
+                        <p>Már van fiókod? <a href="Account/Login">Bejelentkezés</a></p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    [SupplyParameterFromForm]
+    private RegisterModel Input { get; set; } = new();
+
+    private List<string> errors = new();
+
+    [SupplyParameterFromQuery]
+    private string? ReturnUrl { get; set; }
+
+    [CascadingParameter]
+    private HttpContext? HttpContext { get; set; }
+
+    private async Task RegisterUser()
+    {
+        errors.Clear();
+        var user = new ApplicationUser { UserName = Input.Email, Email = Input.Email };
+        var result = await UserManager.CreateAsync(user, Input.Password);
+
+        if (result.Succeeded)
+        {
+            await SignInManager.SignInAsync(user, isPersistent: false);
+            NavigationManager.NavigateTo(ReturnUrl ?? "/", forceLoad: true);
+        }
+        else
+        {
+            foreach (var error in result.Errors)
+            {
+                errors.Add(error.Description);
+            }
+        }
+    }
+
+    public class RegisterModel
+    {
+        [Required(ErrorMessage = "Email kötelező")]
+        [EmailAddress(ErrorMessage = "Érvénytelen email formátum")]
+        public string Email { get; set; } = "";
+
+        [Required(ErrorMessage = "Jelszó kötelező")]
+        [StringLength(100, ErrorMessage = "A {0} legalább {2} és legfeljebb {1} karakter hosszú kell legyen.", MinimumLength = 6)]
+        [DataType(DataType.Password)]
+        public string Password { get; set; } = "";
+
+        [DataType(DataType.Password)]
+        [Compare("Password", ErrorMessage = "A jelszavak nem egyeznek.")]
+        public string ConfirmPassword { get; set; } = "";
+    }
+}

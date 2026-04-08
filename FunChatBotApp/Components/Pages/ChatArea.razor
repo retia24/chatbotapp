@@ -1,0 +1,173 @@
+@using FunChatBotApp.Models
+@using Markdig
+
+<div class="col-md-9 p-0 d-flex flex-column position-relative bg-white chat-area-wrapper">
+    @if (ActiveChat == null)
+    {
+        <div class="d-flex flex-column justify-content-center align-items-center h-100 bg-light">
+            <div class="text-muted mb-3 empty-chat-icon"><i class="bi bi-chat-square-dots"></i></div>
+            <h4 class="text-secondary fw-light">Válassz ki vagy hozz létre egy chatet a kezdéshez!</h4>
+        </div>
+    }
+    else
+    {
+        <!-- Chat Header -->
+        <div class="d-flex justify-content-between align-items-center p-3 border-bottom bg-white shadow-sm z-1">
+            <h5 class="mb-0 fw-bold text-dark">
+                @ActiveChat.Title 
+                <span class="text-muted fw-normal ms-2 project-name-label">
+                    @(ActiveProject != null ? $"({ActiveProject.Name} projekt)" : "")
+                </span>
+            </h5>
+            @if (ActiveProject != null && !string.IsNullOrEmpty(ActiveProject.JointSummary))
+            {
+                <button class="btn btn-sm @(ShowSummary ? "btn-info text-white" : "btn-outline-info") rounded-pill px-3 transition-all" title="@ActiveProject.JointSummary" @onclick="ToggleSummary">
+                    <i class="bi bi-journal-text me-1"></i> @(ShowSummary ? "Memória elrejtése" : "Memória mutatása")
+                </button>
+            }
+        </div>
+
+        @if (ShowSummary && ActiveProject != null)
+        {
+            <div class="alert alert-info border-0 shadow-sm m-3 p-3 rounded-3 summary-box">
+                <h6 class="alert-heading fw-bold mb-1"><i class="bi bi-memory me-1"></i> Közös projekt memória</h6>
+                <p class="mb-0 small text-dark">@ActiveProject.JointSummary</p>
+            </div>
+        }
+
+        <!-- Chat Messages -->
+        <div class="chat-box flex-grow-1 p-4 d-flex flex-column">
+            @if (CurrentMessages.Count == 0)
+            {
+                <div class="d-flex flex-column justify-content-center align-items-center h-100 opacity-50">
+                    <div class="mb-2 empty-messages-icon"><i class="bi bi-chat-quote"></i></div>
+                    <div class="text-center text-muted">Nincsenek üzenetek ebben a chatben.<br>Írj valamit a kezdéshez!</div>
+                </div>
+            }
+            @foreach (var msg in CurrentMessages.Where(m => m.Role != "system"))
+            {
+                <div class="mb-3 d-flex flex-column @(msg.Role == "user" ? "align-items-end" : "align-items-start")">
+                    <div class="px-3 py-2 rounded-4 shadow-sm message-bubble @(msg.Role == "user" ? "bg-primary text-white" : "bg-white text-dark border")">
+                        @if (msg.Role == "user")
+                        {
+                            @msg.Content
+                        }
+                        else
+                        {
+                            <div class="markdown-content">
+                                @((MarkupString)Markdown.ToHtml(msg.Content ?? ""))
+                            </div>
+                        }
+                    </div>
+                    <small class="text-muted mt-1 px-1 message-role-label">
+                        @(msg.Role == "user" ? "Te" : "Asszisztens")
+                    </small>
+                </div>
+            }
+            @if (IsTyping)
+            {
+                <div class="mb-3 d-flex flex-column align-items-start">
+                    <div class="px-3 py-2 rounded-4 shadow-sm bg-white text-dark border typing-bubble">
+                        <div class="typing-indicator d-flex align-items-center gap-1 py-1">
+                            <span class="spinner-grow spinner-grow-sm text-secondary typing-dot" role="status"></span>
+                            <span class="spinner-grow spinner-grow-sm text-secondary typing-dot dot-2" role="status"></span>
+                            <span class="spinner-grow spinner-grow-sm text-secondary typing-dot dot-3" role="status"></span>
+                        </div>
+                    </div>
+                </div>
+            }
+        </div>
+
+        <!-- Input Area -->
+        <div class="p-3 bg-white border-top shadow-sm z-1">
+            <!-- File & Context Controls -->
+            <div class="d-flex align-items-center justify-content-between mb-3 px-1">
+                <div class="d-flex align-items-center gap-2">
+                    <div class="position-relative">
+                        <InputFile OnChange="HandleFileSelectedInternal" class="form-control form-control-sm border-secondary-subtle file-input" accept=".pdf,.docx,.txt,.pptx" />
+                    </div>
+                    @if (!string.IsNullOrEmpty(ActiveChat.ActiveDocumentText))
+                    {
+                        <button class="btn btn-sm btn-outline-danger px-2 rounded-circle d-flex align-items-center justify-content-center clear-doc-btn" @onclick="ClearDocument" title="Dokumentum eltávolítása a chatből">
+                            X
+                        </button>
+                    }
+                </div>
+
+                <div class="form-check form-switch ms-3">
+                    <input class="form-check-input" type="checkbox" id="docToggle" checked="@UseDocumentContext" @onchange="ToggleUseDocumentContext" disabled="@(string.IsNullOrEmpty(ActiveChat.ActiveDocumentText))">
+                    <label class="form-check-label small @(UseDocumentContext ? "text-primary fw-bold" : "text-muted")" for="docToggle" title="Kapcsold be, hogy a fájl tartalma minden kérdéshez el legyen küldve!">
+                        Dokumentum kontextus @(UseDocumentContext ? "(Aktív)" : "(Inaktív)")
+                    </label>
+                </div>
+            </div>
+            
+            @if (IsProcessingFile)
+            {
+                <div class="alert alert-info py-2 px-3 mb-3 d-flex align-items-center small">
+                    <span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+                    Fájl feldolgozása folyamatban...
+                </div>
+            }
+
+            <!-- Message Input -->
+            <div class="input-group shadow-sm rounded-pill overflow-hidden border">
+                <input type="text" class="form-control border-0 px-4 py-2 message-input" @bind="UserInput" @bind:event="oninput" @onkeyup="HandleKeyUp" placeholder="Írj egy üzenetet..." disabled="@IsTyping" />
+                <button class="btn btn-primary px-4 py-2" @onclick="SendMessage" disabled="@(IsTyping || string.IsNullOrWhiteSpace(UserInput))">
+                    Küldés
+                </button>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public ChatSession? ActiveChat { get; set; }
+    [Parameter] public Project? ActiveProject { get; set; }
+    [Parameter] public List<ChatMessage> CurrentMessages { get; set; } = new();
+    [Parameter] public bool IsTyping { get; set; }
+    [Parameter] public bool IsProcessingFile { get; set; }
+    [Parameter] public bool UseDocumentContext { get; set; }
+
+    [Parameter] public EventCallback<InputFileChangeEventArgs> OnFileSelected { get; set; }
+    [Parameter] public EventCallback OnClearDocument { get; set; }
+    [Parameter] public EventCallback<string> OnSendMessage { get; set; }
+    [Parameter] public EventCallback<bool> OnUseDocumentContextChanged { get; set; }
+
+    private string UserInput { get; set; } = "";
+    private bool ShowSummary { get; set; } = false;
+
+    private void ToggleSummary()
+    {
+        ShowSummary = !ShowSummary;
+    }
+
+    private async Task HandleFileSelectedInternal(InputFileChangeEventArgs e)
+    {
+        await OnFileSelected.InvokeAsync(e);
+    }
+
+    private async Task ClearDocument()
+    {
+        await OnClearDocument.InvokeAsync();
+    }
+
+    private async Task SendMessage()
+    {
+        if (string.IsNullOrWhiteSpace(UserInput) || ActiveChat == null) return;
+        var input = UserInput;
+        UserInput = "";
+        await OnSendMessage.InvokeAsync(input);
+    }
+
+    private async Task HandleKeyUp(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter") await SendMessage();
+    }
+
+    private async Task ToggleUseDocumentContext(ChangeEventArgs e)
+    {
+        UseDocumentContext = (bool?)e.Value ?? false;
+        await OnUseDocumentContextChanged.InvokeAsync(UseDocumentContext);
+    }
+}

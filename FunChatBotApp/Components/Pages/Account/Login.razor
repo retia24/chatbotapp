@@ -1,0 +1,95 @@
+@page "/Account/Login"
+@using System.ComponentModel.DataAnnotations
+@using Microsoft.AspNetCore.Identity
+@using FunChatBotApp.Data
+@using Microsoft.AspNetCore.Authentication
+@using Microsoft.AspNetCore.Antiforgery
+@inject SignInManager<ApplicationUser> SignInManager
+@inject NavigationManager NavigationManager
+@inject ILogger<LoginModel> Logger
+
+<PageTitle>Bejelentkezés</PageTitle>
+
+<div class="container mt-5">
+    <div class="row justify-content-center">
+        <div class="col-md-6 col-lg-4">
+            <div class="card shadow-sm">
+                <div class="card-body">
+                    <h3 class="card-title text-center mb-4">Bejelentkezés</h3>
+                    
+                    @if (!string.IsNullOrEmpty(errorMessage))
+                    {
+                        <div class="alert alert-danger">@errorMessage</div>
+                    }
+
+                    <EditForm Model="Input" method="post" OnValidSubmit="LoginUser" FormName="login">
+                        <DataAnnotationsValidator />
+                        
+                        <div class="mb-3">
+                            <label for="email" class="form-label">Email</label>
+                            <InputText id="email" class="form-control" @bind-Value="Input.Email" />
+                            <ValidationMessage For="() => Input.Email" class="text-danger" />
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="password" class="form-label">Jelszó</label>
+                            <InputText type="password" id="password" class="form-control" @bind-Value="Input.Password" />
+                            <ValidationMessage For="() => Input.Password" class="text-danger" />
+                        </div>
+
+                        <button type="submit" class="btn btn-primary w-100">Bejelentkezés</button>
+                    </EditForm>
+                    
+                    <div class="mt-3 text-center">
+                        <p>Nincs még fiókod? <a href="Account/Register">Regisztráció</a></p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    [SupplyParameterFromForm]
+    private LoginModel Input { get; set; } = new();
+
+    [SupplyParameterFromQuery]
+    private string? ReturnUrl { get; set; }
+
+    private string? errorMessage;
+
+    [CascadingParameter]
+    private HttpContext? HttpContext { get; set; }
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (HttpContext is not null && HttpMethods.IsGet(HttpContext.Request.Method))
+        {
+            await HttpContext.SignOutAsync(IdentityConstants.ExternalScheme);
+        }
+    }
+
+    private async Task LoginUser()
+    {
+        var result = await SignInManager.PasswordSignInAsync(Input.Email, Input.Password, isPersistent: false, lockoutOnFailure: false);
+        if (result.Succeeded)
+        {
+            NavigationManager.NavigateTo(ReturnUrl ?? "/", forceLoad: true);
+        }
+        else
+        {
+            errorMessage = "Sikertelen bejelentkezés. Ellenőrizd a megadott adatokat.";
+        }
+    }
+
+    public class LoginModel
+    {
+        [Required(ErrorMessage = "Email kötelező")]
+        [EmailAddress(ErrorMessage = "Érvénytelen email cím")]
+        public string Email { get; set; } = "";
+
+        [Required(ErrorMessage = "Jelszó kötelező")]
+        [DataType(DataType.Password)]
+        public string Password { get; set; } = "";
+    }
+}

@@ -1,6 +1,17 @@
 ﻿<Router AppAssembly="typeof(Program).Assembly">
     <Found Context="routeData">
-        <RouteView RouteData="routeData" DefaultLayout="typeof(Layout.MainLayout)" />
+        <AuthorizeRouteView RouteData="routeData" DefaultLayout="typeof(Layout.MainLayout)">
+            <NotAuthorized>
+                @if (context.User.Identity?.IsAuthenticated == false)
+                {
+                    <FunChatBotApp.Components.Account.RedirectToLogin />
+                }
+                else
+                {
+                    <div class="alert alert-warning text-center mt-5">Nincs jogosultságod megtekinteni ezt az oldalt.</div>
+                }
+            </NotAuthorized>
+        </AuthorizeRouteView>
         <FocusOnNavigate RouteData="routeData" Selector="h1" />
     </Found>
 </Router>

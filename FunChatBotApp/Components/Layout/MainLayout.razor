@@ -16,6 +16,23 @@
                             </NavLink>
                         </li>
                     </ul>
+                    <div class="d-flex align-items-center text-white">
+                        <AuthorizeView>
+                            <Authorized>
+                                <span class="me-3">Szia, @context.User.Identity?.Name!</span>
+                                @* Ideiglenes megoldás POST kéréshez egy form-mal API-n keresztül, vagy rendes Blazor Account/Logout *@
+                                <form action="Account/Logout" method="post">
+                                    <AntiforgeryToken />
+                                    <input type="hidden" name="ReturnUrl" value="/" />
+                                    <button type="submit" class="btn btn-outline-light btn-sm">Kijelentkezés</button>
+                                </form>
+                            </Authorized>
+                            <NotAuthorized>
+                                <a class="btn btn-outline-light btn-sm me-2" href="Account/Register">Regisztráció</a>
+                                <a class="btn btn-primary btn-sm" href="Account/Login">Bejelentkezés</a>
+                            </NotAuthorized>
+                        </AuthorizeView>
+                    </div>
                 </div>
             </div>
         </nav>

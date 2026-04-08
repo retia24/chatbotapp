@@ -1,0 +1,66 @@
+.chat-area-wrapper {
+    height: 100%;
+}
+
+.empty-chat-icon {
+    font-size: 3rem;
+}
+
+.project-name-label {
+    font-size: 0.9rem;
+}
+
+.summary-box {
+    max-height: 150px;
+    overflow-y: auto;
+}
+
+.chat-box {
+    overflow-y: auto;
+    background-color: #f8f9fa;
+}
+
+.empty-messages-icon {
+    font-size: 2rem;
+}
+
+.message-bubble {
+    max-width: 75%;
+    font-size: 0.95rem;
+    line-height: 1.5;
+}
+
+.message-role-label {
+    font-size: 0.75rem;
+}
+
+.typing-bubble {
+    max-width: 75%;
+}
+
+.typing-dot {
+    width: 0.5rem;
+    height: 0.5rem;
+}
+
+.dot-2 {
+    animation-delay: 0.2s;
+}
+
+.dot-3 {
+    animation-delay: 0.4s;
+}
+
+.file-input {
+    max-width: 250px;
+    font-size: 0.85rem;
+}
+
+.clear-doc-btn {
+    width: 28px;
+    height: 28px;
+}
+
+.message-input {
+    box-shadow: none;
+}

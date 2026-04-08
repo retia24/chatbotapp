@@ -9,7 +9,11 @@ public abstract class WorkspaceDocument
     [JsonProperty("id")]
     public string Id { get; set; } = Guid.NewGuid().ToString();
 
-    // Ez lesz a Partition Key a Cosmos DB-ben (/projectId)
+    // Ez lesz az ÚJ Partition Key a Cosmos DB-ben (/userId)
+    [JsonProperty("userId")]
+    public string UserId { get; set; } = string.Empty;
+
+    // A projekt azonosító már csak másodlagos lesz
     [JsonProperty("projectId")]
     public string ProjectId { get; set; } = string.Empty;
 

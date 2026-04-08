@@ -28,10 +28,10 @@ public class CosmosDbService
     // Projekt - műveletek
     // ==========================================
 
-    public async Task<List<Project>> GetProjectsAsync()
+    public async Task<List<Project>> GetProjectsAsync(string userId)
     {
-        var query = _container.GetItemLinqQueryable<Project>()
-            .Where(x => x.Type == "Project")
+        var query = _container.GetItemLinqQueryable<Project>(requestOptions: new QueryRequestOptions { PartitionKey = new PartitionKey(userId) })
+            .Where(x => x.Type == "Project" && x.UserId == userId)
             .ToFeedIterator();
 
         var results = new List<Project>();
@@ -43,12 +43,12 @@ public class CosmosDbService
         return results;
     }
 
-    public async Task<Project?> GetProjectAsync(string id)
+    public async Task<Project?> GetProjectAsync(string id, string userId)
     {
         try
         {
             // A projekt ProjectId-ja mindig a saját Id-ja a struktúránk alapján
-            ItemResponse<Project> response = await _container.ReadItemAsync<Project>(id, new PartitionKey(id));
+            ItemResponse<Project> response = await _container.ReadItemAsync<Project>(id, new PartitionKey(userId));
             return response.Resource;
         }
         catch (CosmosException ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
@@ -57,20 +57,21 @@ public class CosmosDbService
         }
     }
 
-    public async Task UpsertProjectAsync(Project project)
+    public async Task UpsertProjectAsync(Project project, string userId)
     {
         project.Type = "Project";
+        project.UserId = userId;
         if (string.IsNullOrEmpty(project.ProjectId))
         {
             project.ProjectId = project.Id; // A partíció kulcs a projekt ID-ja lesz
         }
 
-        await _container.UpsertItemAsync(project, new PartitionKey(project.ProjectId));
+        await _container.UpsertItemAsync(project, new PartitionKey(userId));
     }
 
-    public async Task DeleteProjectAsync(string id)
+    public async Task DeleteProjectAsync(string id, string userId)
     {
-        await _container.DeleteItemAsync<Project>(id, new PartitionKey(id));
+        await _container.DeleteItemAsync<Project>(id, new PartitionKey(userId));
     }
 
 
@@ -78,12 +79,12 @@ public class CosmosDbService
     // Standalone (egyszerű) Chat - műveletek
     // ==========================================
 
-    public async Task<List<ChatSession>> GetStandaloneChatsAsync()
+    public async Task<List<ChatSession>> GetStandaloneChatsAsync(string userId)
     {
         // A Type alapján listázzuk azokat a chateket, amiknek a ProjectId megegyezik a saját Id-val
         var query = new QueryDefinition("SELECT * FROM c WHERE c.type = 'StandaloneChat' AND c.projectId = c.id");
 
-        var iterator = _container.GetItemQueryIterator<ChatSession>(query);
+        var iterator = _container.GetItemQueryIterator<ChatSession>(query, requestOptions: new QueryRequestOptions { PartitionKey = new PartitionKey(userId) });
         var results = new List<ChatSession>();
 
         while (iterator.HasMoreResults)
@@ -94,12 +95,12 @@ public class CosmosDbService
         return results;
     }
 
-    public async Task<ChatSession?> GetStandaloneChatAsync(string id)
+    public async Task<ChatSession?> GetStandaloneChatAsync(string id, string userId)
     {
         try
         {
             // Az egyszerű chateknél megegyeztünk egy közös "Standalone" partícióban
-            ItemResponse<ChatSession> response = await _container.ReadItemAsync<ChatSession>(id, new PartitionKey(id));
+            ItemResponse<ChatSession> response = await _container.ReadItemAsync<ChatSession>(id, new PartitionKey(userId));
             return response.Resource;
         }
         catch (CosmosException ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
@@ -108,34 +109,35 @@ public class CosmosDbService
         }
     }
 
-    public async Task UpsertStandaloneChatAsync(ChatSession chat)
+    public async Task UpsertStandaloneChatAsync(ChatSession chat, string userId)
     {
         chat.Type = "StandaloneChat";
+        chat.UserId = userId;
         if (string.IsNullOrEmpty(chat.ProjectId))
         {
             chat.ProjectId = chat.Id; // Közös partíció kulcs az egyedülálló chateknek
         }
 
-        await _container.UpsertItemAsync(chat, new PartitionKey(chat.ProjectId));
+        await _container.UpsertItemAsync(chat, new PartitionKey(userId));
     }
 
-    public async Task DeleteStandaloneChatAsync(string id)
+    public async Task DeleteStandaloneChatAsync(string id, string userId)
     {
-        await _container.DeleteItemAsync<ChatSession>(id, new PartitionKey(id));
+        await _container.DeleteItemAsync<ChatSession>(id, new PartitionKey(userId));
     }
 
     // ==========================================
     // Projekt Chatek - műveletek
     // ==========================================
 
-    public async Task<List<ChatSession>> GetProjectChatsAsync(string projectId)
+    public async Task<List<ChatSession>> GetProjectChatsAsync(string projectId, string userId)
     {
         var query = new QueryDefinition("SELECT * FROM c WHERE c.projectId = @projectId AND c.type = 'StandaloneChat'")
             .WithParameter("@projectId", projectId);
 
         var iterator = _container.GetItemQueryIterator<ChatSession>(
             query, 
-            requestOptions: new QueryRequestOptions { PartitionKey = new PartitionKey(projectId) });
+            requestOptions: new QueryRequestOptions { PartitionKey = new PartitionKey(userId) });
 
         var results = new List<ChatSession>();
         while (iterator.HasMoreResults)
@@ -146,19 +148,20 @@ public class CosmosDbService
         return results;
     }
 
-    public async Task UpsertProjectChatAsync(ChatSession chat, string projectId)
+    public async Task UpsertProjectChatAsync(ChatSession chat, string projectId, string userId)
     {
         chat.Type = "StandaloneChat";
         chat.ProjectId = projectId;
+        chat.UserId = userId;
 
-        await _container.UpsertItemAsync(chat, new PartitionKey(chat.ProjectId));
+        await _container.UpsertItemAsync(chat, new PartitionKey(userId));
     }
 
     // ==========================================
     // Üzenetek - műveletek
     // ==========================================
 
-    public async Task<List<ChatMessage>> GetChatMessagesAsync(string projectId, string chatId)
+    public async Task<List<ChatMessage>> GetChatMessagesAsync(string projectId, string chatId, string userId)
     {
         // Az üzeneteket időrendben kérjük le az adott partícióból és chatből
         var query = new QueryDefinition("SELECT * FROM c WHERE c.projectId = @projectId AND c.chatId = @chatId AND c.type = 'Message' ORDER BY c.timestamp ASC")
@@ -167,7 +170,7 @@ public class CosmosDbService
 
         var iterator = _container.GetItemQueryIterator<ChatMessage>(
             query,
-            requestOptions: new QueryRequestOptions { PartitionKey = new PartitionKey(projectId) });
+            requestOptions: new QueryRequestOptions { PartitionKey = new PartitionKey(userId) });
 
         var results = new List<ChatMessage>();
         while (iterator.HasMoreResults)
@@ -178,14 +181,14 @@ public class CosmosDbService
         return results;
     }
 
-    public async Task<List<ChatMessage>> GetProjectMessagesAsync(string projectId, int? slidingWindowSize = null)
+    public async Task<List<ChatMessage>> GetProjectMessagesAsync(string projectId, string userId, int? slidingWindowSize = null)
     {
         var query = new QueryDefinition("SELECT * FROM c WHERE c.projectId = @projectId AND c.type = 'Message' ORDER BY c.timestamp ASC")
             .WithParameter("@projectId", projectId);
 
         var iterator = _container.GetItemQueryIterator<ChatMessage>(
             query,
-            requestOptions: new QueryRequestOptions { PartitionKey = new PartitionKey(projectId) });
+            requestOptions: new QueryRequestOptions { PartitionKey = new PartitionKey(userId) });
 
         var results = new List<ChatMessage>();
         while (iterator.HasMoreResults)
@@ -206,9 +209,10 @@ public class CosmosDbService
         return results;
     }
 
-    public async Task UpsertMessageAsync(ChatMessage message)
+    public async Task UpsertMessageAsync(ChatMessage message, string userId)
     {
         message.Type = "Message";
-        await _container.UpsertItemAsync(message, new PartitionKey(message.ProjectId));
+        message.UserId = userId;
+        await _container.UpsertItemAsync(message, new PartitionKey(userId));
     }
 }
