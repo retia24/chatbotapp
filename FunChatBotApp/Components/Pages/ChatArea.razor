@@ -75,6 +75,21 @@
                             <div class="markdown-content">
                                 @((MarkupString)Markdown.ToHtml(msg.Content ?? ""))
                             </div>
+
+                            @if (msg.Topics != null && msg.Topics.Any())
+                            {
+                                <div class="mt-2 pt-2 border-top">
+                                    <span class="text-muted small mb-1 d-block">Ajánlott témák (kattints egyre):</span>
+                                    <div class="d-flex flex-wrap gap-2">
+                                        @foreach (var topic in msg.Topics)
+                                        {
+                                            <button class="btn btn-sm btn-outline-primary rounded-pill text-start" @onclick="() => UserInput = topic">
+                                                @topic
+                                            </button>
+                                        }
+                                    </div>
+                                </div>
+                            }
                         }
                     </div>
                     <small class="text-muted mt-1 px-1 message-role-label">

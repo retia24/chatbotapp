@@ -4,6 +4,7 @@ using FunChatBotApp.Services;
 using FunChatBotApp.Data;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.SemanticKernel;
 using System.Threading.RateLimiting;
 
 namespace FunChatBotApp
@@ -63,6 +64,13 @@ namespace FunChatBotApp
             builder.Services.AddSingleton<CosmosDbService>();
             builder.Services.AddScoped<DocumentService>();
             builder.Services.AddScoped<ChatService>();
+
+            // Semantic Kernel integráció
+            builder.Services.AddKernel()
+                .AddAzureOpenAIChatCompletion(
+                    deploymentName: builder.Configuration["OpenAI:DeploymentName"]!,
+                    endpoint: builder.Configuration["OpenAI:Endpoint"]!,
+                    apiKey: builder.Configuration["OpenAI:ApiKey"]!);
 
             // Rate Limiter beállítása
             builder.Services.AddRateLimiter(options =>

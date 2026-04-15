@@ -72,6 +72,9 @@ public class ChatMessage : WorkspaceDocument
     [JsonProperty("content")]
     public string Content { get; set; } = string.Empty;
 
+    [JsonProperty("topics")]
+    public List<string>? Topics { get; set; }
+
     [JsonProperty("timestamp")]
     public DateTime Timestamp { get; set; } = DateTime.UtcNow;
 }
