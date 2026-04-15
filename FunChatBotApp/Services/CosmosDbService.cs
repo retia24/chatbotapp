@@ -157,6 +157,15 @@ public class CosmosDbService
         await _container.UpsertItemAsync(chat, new PartitionKey(userId));
     }
 
+    public async Task DeleteChatAsync(string id, string userId)
+    {
+        // Töröljük a chat dokumentumot
+        await _container.DeleteItemAsync<ChatSession>(id, new PartitionKey(userId));
+
+        // Opcionálisan ide kerülhet a chathez tartozó üzenetek (Message) törlése is, bár az SQL API-ban ezt külön kell lekérdezni
+        // de az egyszerűség kedvéért a chat dokumentum törlésével a UI-ról már eltűnik.
+    }
+
     // ==========================================
     // Üzenetek - műveletek
     // ==========================================

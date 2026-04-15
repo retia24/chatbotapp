@@ -38,7 +38,8 @@
                   OnClearDocument="ClearDocument"
                   OnSendMessage="SendMessage"
                   OnUseDocumentContextChanged="HandleUseDocumentContextChanged"
-                  OnMoveToProject="HandleMoveToProject" />
+                  OnMoveToProject="HandleMoveToProject"
+                  OnDeleteChat="HandleDeleteChat" />
     </div>
 </div>
 
@@ -181,6 +182,45 @@
         catch (Exception ex)
         {
             currentMessages.Add(new FunChatBotApp.Models.ChatMessage { Role = "assistant", Content = $"Hiba az áthelyezés során: {ex.Message}" });
+        }
+        finally
+        {
+            isMovingChat = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task HandleDeleteChat()
+    {
+        if (activeChat == null) return;
+
+        isMovingChat = true;
+        StateHasChanged();
+        try
+        {
+            await CosmosDb.DeleteChatAsync(activeChat.Id, currentUserId);
+
+            // Törlés a helyi listákból
+            if (activeProject != null && projectChatsByProject.ContainsKey(activeProject.Id))
+            {
+                projectChatsByProject[activeProject.Id].RemoveAll(c => c.Id == activeChat.Id);
+            }
+            else
+            {
+                standaloneChats.RemoveAll(c => c.Id == activeChat.Id);
+            }
+
+            activeChat = null;
+            activeProject = null;
+            currentMessages.Clear();
+            useDocumentContext = false;
+            
+            // Opcionális: teljes frissítés az adatbiztonságért
+            await LoadWorkspaceAsync();
+        }
+        catch (Exception ex)
+        {
+            currentMessages.Add(new FunChatBotApp.Models.ChatMessage { Role = "assistant", Content = $"Hiba a törlés során: {ex.Message}" });
         }
         finally
         {
