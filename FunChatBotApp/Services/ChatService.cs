@@ -253,23 +253,18 @@ public class ChatService
     public async Task<Models.ChatMessage> GenerateInitialRecommendationsAsync(ChatSession chat, string userId)
     {
         var plugin = new UserStrategistPlugin(_cosmosDb, userId);
-        
-        // 1. Profil elemzés (ha van elég adat)
-        var profile = await plugin.AnalyzeUserHistoryAsync(_kernel);
-        
-        string topicsResponse;
-        if (profile == "Nincs elég adat az elemzéshez.")
+
+        // Futtatjuk a teljes autonóm 3-ágenses workflow-t
+        string topicsResponse = await plugin.GenerateRecommendationsAsync(_kernel);
+
+        // Ha valamiért az ágensek teljesen besültek
+        if (string.IsNullOrWhiteSpace(topicsResponse) || topicsResponse.Length < 10)
         {
-            topicsResponse = "Általános témák:\n- Milyen volt a mai napod?\n- Milyen projekteken vagy feladatokon dolgozol mostanában?\n- Mi volt a legérdekesebb dolog, amit mostanában tanultál?";
-        }
-        else
-        {
-            // 2. Témák generálása
-            topicsResponse = await plugin.GenerateRecommendationsAsync(_kernel, profile);
+            topicsResponse = "Milyen volt a mai napod?\nMilyen projekteken vagy feladatokon dolgozol mostanában?\nMi volt a legérdekesebb dolog, amit mostanában tanultál?";
         }
 
-        var topics = topicsResponse.Split('\n', StringSplitOptions.RemoveEmptyEntries).Select(t => t.Trim('-').Trim()).ToList();
-        
+        var topics = topicsResponse.Split('\n', System.StringSplitOptions.RemoveEmptyEntries).Select(t => t.Trim('-').Trim()).ToList();
+
         var asstMsg = new Models.ChatMessage
         {
             ChatId = chat.Id,
