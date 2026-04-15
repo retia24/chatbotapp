@@ -17,6 +17,7 @@
                         </li>
                     </ul>
                     <div class="d-flex align-items-center text-white">
+                        <FunChatBotApp.Components.Layout.ThemeToggle @rendermode="InteractiveServer" />
                         <AuthorizeView>
                             <Authorized>
                                 <a class="text-white text-decoration-none me-3" href="Account/Profile">
@@ -39,7 +40,7 @@
         </nav>
     </header>
 
-    <main class="flex-grow-1 overflow-auto bg-light">
+    <main class="flex-grow-1 overflow-auto bg-body-tertiary">
         <article class="content p-4 h-100">
             @Body
         </article>
@@ -51,3 +52,6 @@
     <a href="." class="reload">Reload</a>
     <span class="dismiss">🗙</span>
 </div>
+
+@code {
+}

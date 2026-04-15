@@ -64,6 +64,7 @@ namespace FunChatBotApp
             builder.Services.AddSingleton<CosmosDbService>();
             builder.Services.AddScoped<DocumentService>();
             builder.Services.AddScoped<ChatService>();
+            builder.Services.AddScoped<ThemeService>();
 
             // Semantic Kernel integráció
             builder.Services.AddKernel()

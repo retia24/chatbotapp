@@ -1,0 +1,57 @@
+@inject IJSRuntime JSRuntime
+@inject FunChatBotApp.Services.ThemeService ThemeService
+@implements IDisposable
+
+<button class="btn btn-outline-light btn-sm me-3" @onclick="ToggleTheme" title="Téma váltása">
+    @if (ThemeService.CurrentTheme == "light")
+    {
+        <i class="bi bi-moon-fill me-1"></i> @("Sötét")
+    }
+    else
+    {
+        <i class="bi bi-sun-fill me-1"></i> @("Világos")
+    }
+</button>
+
+@code {
+    protected override void OnInitialized()
+    {
+        ThemeService.OnThemeChanged += HandleThemeChanged;
+    }
+
+    private void ToggleTheme()
+    {
+        var newTheme = ThemeService.CurrentTheme == "light" ? "dark" : "light";
+        ThemeService.SwitchTheme(newTheme);
+    }
+
+    private async void HandleThemeChanged()
+    {
+        await InvokeAsync(async () =>
+        {
+            try
+            {
+                await JSRuntime.InvokeVoidAsync("setTheme", ThemeService.CurrentTheme);
+            }
+            catch { }
+            StateHasChanged();
+        });
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            try
+            {
+                await JSRuntime.InvokeVoidAsync("setTheme", ThemeService.CurrentTheme);
+            }
+            catch { }
+        }
+    }
+
+    public void Dispose()
+    {
+        ThemeService.OnThemeChanged -= HandleThemeChanged;
+    }
+}

@@ -20,14 +20,17 @@ public class ChatService
     private readonly CosmosDbService _cosmosDb;
     private readonly Kernel _kernel;
 
+    private readonly ThemeService _themeService;
+
     // Beállítások a memóriához
     private const int SlidingWindowSize = 10; // Csak az utolsó N üzenetet küldjük a fő chatnél
     private const int SummarizationTrigger = 6; // Minden N-edik üzenetváltás után frissítjük a közös memóriát
 
-    public ChatService(IConfiguration config, CosmosDbService cosmosDb, Kernel kernel)
+    public ChatService(IConfiguration config, CosmosDbService cosmosDb, Kernel kernel, ThemeService themeService)
     {
         _cosmosDb = cosmosDb;
         _kernel = kernel;
+        _themeService = themeService;
 
         var endpoint = config["OpenAI:Endpoint"];
         var apiKey = config["OpenAI:ApiKey"]; // Key Vaultból
@@ -66,6 +69,7 @@ public class ChatService
         var chatKernel = _kernel.Clone();
         var plugin = new UserStrategistPlugin(_cosmosDb, userId);
         chatKernel.Plugins.AddFromObject(plugin, "Strategist");
+        chatKernel.Plugins.AddFromObject(new ThemePlugin(_themeService), "Theme");
 
         var topicFilter = new TopicExtractionFilter();
         chatKernel.FunctionInvocationFilters.Add(topicFilter);
@@ -101,7 +105,7 @@ public class ChatService
         }
 
         // System prompt, hogy az LLM pontosan tudja, mi a dolga általában
-        chatHistory.AddSystemMessage("Te egy hasznos és intelligens AI asszisztens vagy. CSAK AKKOR használj eszközöket (tools), ha a felhasználó KIFEJEZETTEN témát kér vagy az adatait szeretné elemeztetni. Egyéb üzenetekre válaszolj normálisan, eszközhasználat nélkül.");
+        chatHistory.AddSystemMessage("Te egy hasznos és intelligens AI asszisztens vagy. CSAK AKKOR használj eszközöket (tools), ha a felhasználó KIFEJEZETTEN témát kér, vagy az adatait szeretné elemeztetni, vagy a TÉMÁT/KINÉZETET (theme) szeretné sötétre vagy világosra váltani. Egyéb üzenetekre válaszolj normálisan, eszközhasználat nélkül.");
 
         // Sliding window a teljes projekt üzeneteiből
         var allProjectMessages = await _cosmosDb.GetProjectMessagesAsync(project.Id, userId, SlidingWindowSize);
@@ -179,6 +183,7 @@ public class ChatService
         var chatKernel = _kernel.Clone();
         var plugin = new UserStrategistPlugin(_cosmosDb, userId);
         chatKernel.Plugins.AddFromObject(plugin, "Strategist");
+        chatKernel.Plugins.AddFromObject(new ThemePlugin(_themeService), "Theme");
 
         var topicFilter = new TopicExtractionFilter();
         chatKernel.FunctionInvocationFilters.Add(topicFilter);
@@ -208,7 +213,7 @@ public class ChatService
         }
 
         // System prompt, hogy az LLM pontosan tudja, mi a dolga általában
-        chatHistory.AddSystemMessage("Te egy hasznos és intelligens AI asszisztens vagy. CSAK AKKOR használj eszközöket (tools), ha a felhasználó KIFEJEZETTEN témát kér vagy az adatait szeretné elemeztetni. Egyéb üzenetekre válaszolj normálisan, eszközhasználat nélkül.");
+        chatHistory.AddSystemMessage("Te egy hasznos és intelligens AI asszisztens vagy. CSAK AKKOR használj eszközöket (tools), ha a felhasználó KIFEJEZETTEN témát kér, vagy az adatait szeretné elemeztetni, vagy a TÉMÁT/KINÉZETET (theme) szeretné sötétre vagy világosra váltani. Egyéb üzenetekre válaszolj normálisan, eszközhasználat nélkül.");
 
         var recentMessages = currentMessages.TakeLast(SlidingWindowSize);
         foreach (var msg in recentMessages)

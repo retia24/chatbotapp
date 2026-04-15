@@ -1,10 +1,11 @@
 @using FunChatBotApp.Models
 @using Markdig
+@inject FunChatBotApp.Services.ThemeService ThemeSvc
 
-<div class="col-md-9 p-0 d-flex flex-column position-relative bg-white chat-area-wrapper">
+<div class="col-md-9 p-0 d-flex flex-column position-relative bg-body chat-area-wrapper">
     @if (ActiveChat == null)
     {
-        <div class="d-flex flex-column justify-content-center align-items-center h-100 bg-light">
+        <div class="d-flex flex-column justify-content-center align-items-center h-100 bg-body-tertiary">
             <div class="text-muted mb-3 empty-chat-icon"><i class="bi bi-chat-square-dots"></i></div>
             <h4 class="text-secondary fw-light">Válassz ki vagy hozz létre egy chatet a kezdéshez!</h4>
         </div>
@@ -12,8 +13,8 @@
     else
     {
         <!-- Chat Header -->
-        <div class="d-flex justify-content-between align-items-center p-3 border-bottom bg-white shadow-sm z-1">
-            <h5 class="mb-0 fw-bold text-dark">
+        <div class="d-flex justify-content-between align-items-center p-3 border-bottom bg-body shadow-sm z-1">
+            <h5 class="mb-0 fw-bold text-body">
                 @ActiveChat.Title 
                 <span class="text-muted fw-normal ms-2 project-name-label">
                     @(ActiveProject != null ? $"({ActiveProject.Name} projekt)" : "")
@@ -53,7 +54,7 @@
         {
             <div class="alert alert-info border-0 shadow-sm m-3 p-3 rounded-3 summary-box">
                 <h6 class="alert-heading fw-bold mb-1"><i class="bi bi-memory me-1"></i> Közös projekt memória</h6>
-                <p class="mb-0 small text-dark">@ActiveProject.JointSummary</p>
+                <p class="mb-0 small text-body">@ActiveProject.JointSummary</p>
             </div>
         }
 
@@ -69,7 +70,7 @@
             @foreach (var msg in CurrentMessages.Where(m => m.Role != "system"))
             {
                 <div class="mb-3 d-flex flex-column @(msg.Role == "user" ? "align-items-end" : "align-items-start")">
-                    <div class="px-3 py-2 rounded-4 shadow-sm message-bubble @(msg.Role == "user" ? "bg-primary text-white" : "bg-white text-dark border")">
+                    <div class="px-3 py-2 rounded-4 shadow-sm message-bubble @(msg.Role == "user" ? "bg-primary text-white" : "bg-body text-body border")">
                         @if (msg.Role == "user")
                         {
                             @msg.Content
@@ -104,7 +105,7 @@
             @if (IsTyping)
             {
                 <div class="mb-3 d-flex flex-column align-items-start">
-                    <div class="px-3 py-2 rounded-4 shadow-sm bg-white text-dark border typing-bubble">
+                    <div class="px-3 py-2 rounded-4 shadow-sm bg-body text-body border typing-bubble">
                         <div class="typing-indicator d-flex align-items-center gap-1 py-1">
                             <span class="spinner-grow spinner-grow-sm text-secondary typing-dot" role="status"></span>
                             <span class="spinner-grow spinner-grow-sm text-secondary typing-dot dot-2" role="status"></span>
@@ -116,7 +117,7 @@
         </div>
 
         <!-- Input Area -->
-        <div class="p-3 bg-white border-top shadow-sm z-1">
+        <div class="p-3 bg-body border-top shadow-sm z-1">
             <!-- File & Context Controls -->
             <div class="d-flex align-items-center justify-content-between mb-3 px-1">
                 <div class="d-flex align-items-center gap-2">
@@ -162,7 +163,7 @@
 
             <!-- Message Input -->
             <div class="input-group shadow-sm rounded-pill overflow-hidden border">
-                <input type="text" class="form-control border-0 px-4 py-2 message-input" @bind="UserInput" @bind:event="oninput" @onkeyup="HandleKeyUp" placeholder="Írj egy üzenetet..." disabled="@(IsTyping || IsMovingChat)" />
+                <input type="text" class="form-control border-0 px-4 py-2 message-input bg-body text-body" @bind="UserInput" @bind:event="oninput" @onkeyup="HandleKeyUp" placeholder="Írj egy üzenetet..." disabled="@(IsTyping || IsMovingChat)" />
                 <button class="btn btn-primary px-4 py-2" @onclick="SendMessage" disabled="@(IsTyping || IsMovingChat || string.IsNullOrWhiteSpace(UserInput))">
                     Küldés
                 </button>

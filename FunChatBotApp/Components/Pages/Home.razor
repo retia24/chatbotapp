@@ -8,13 +8,16 @@
 @inject ChatService ChatSvc
 @inject DocumentService DocSvc
 @inject CosmosDbService CosmosDb
+@inject ThemeService ThemeSvc
 @inject AuthenticationStateProvider AuthStateProvider
 @rendermode InteractiveServer
+
+@implements IDisposable
 
 <PageTitle>AI Chat Workspace</PageTitle>
 
 <div class="container-fluid d-flex h-100 p-3 pt-0 workspace-container">
-    <div class="row flex-grow-1 w-100 bg-white rounded-4 shadow-sm border overflow-hidden">
+    <div class="row flex-grow-1 w-100 bg-body rounded-4 shadow-sm border overflow-hidden">
         <!-- Sidebar / Workspace Menu -->
         <Sidebar StandaloneChats="standaloneChats"
                  Projects="projects"
@@ -62,6 +65,7 @@
 
     protected override async Task OnInitializedAsync()
     {
+        ThemeSvc.OnThemeChanged += HandleThemeChanged;
         var authState = await AuthStateProvider.GetAuthenticationStateAsync();
         var user = authState.User;
         var userIdString = user.FindFirst(ClaimTypes.NameIdentifier)?.Value;
@@ -311,5 +315,15 @@
             isTyping = false;
             StateHasChanged();
         }
+    }
+
+    public void Dispose()
+    {
+        ThemeSvc.OnThemeChanged -= HandleThemeChanged;
+    }
+
+    private async void HandleThemeChanged()
+    {
+        await InvokeAsync(StateHasChanged);
     }
 }

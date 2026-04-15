@@ -1,7 +1,7 @@
 @using FunChatBotApp.Models
 
-<div class="col-md-3 bg-light border-end p-3 d-flex flex-column sidebar-wrapper">
-    <h4 class="mb-4 fw-bold text-dark">Munkaterület</h4>
+<div class="col-md-3 bg-body-tertiary border-end p-3 d-flex flex-column sidebar-wrapper">
+    <h4 class="mb-4 fw-bold text-body">Munkaterület</h4>
 
     <!-- Standalone Chats -->
     <div class="mb-4">
@@ -31,14 +31,14 @@
 
         @foreach (var proj in Projects)
         {
-            <div class="card border-0 shadow-sm mb-3 rounded-3">
-                <div class="card-header bg-white border-bottom-0 d-flex justify-content-between align-items-center py-2 rounded-top-3">
-                    <strong class="text-dark">@proj.Name</strong>
-                    <button class="btn btn-sm btn-light text-primary rounded-circle d-flex align-items-center justify-content-center add-chat-btn" title="Új chat ehhez a projekthez" @onclick="() => PromptNewProjectChat(proj)">+</button>
+            <div class="card border-0 shadow-sm mb-3 rounded-3 bg-body">
+                <div class="card-header bg-body border-bottom-0 d-flex justify-content-between align-items-center py-2 rounded-top-3">
+                    <strong class="text-body">@proj.Name</strong>
+                    <button class="btn btn-sm btn-outline-secondary rounded-circle d-flex align-items-center justify-content-center add-chat-btn" title="Új chat ehhez a projekthez" @onclick="() => PromptNewProjectChat(proj)">+</button>
                 </div>
                 @if (ProjectToCreateChatFor == proj)
                 {
-                    <div class="card-body p-2 bg-light border-bottom">
+                    <div class="card-body p-2 bg-body-tertiary border-bottom">
                         <div class="input-group input-group-sm shadow-sm rounded">
                             <input type="text" class="form-control border-0" @bind="NewProjectChatTitle" placeholder="Chat címe..." />
                             <button class="btn btn-primary" @onclick="CreateProjectChat">Hozzáad</button>
@@ -51,7 +51,7 @@
                     {
                         @foreach (var pChat in ProjectChatsByProject[proj.Id])
                         {
-                            <li class="list-group-item list-group-item-action border-0 py-2 project-chat-item @(ActiveChat == pChat ? "active fw-bold" : "bg-light")"
+                            <li class="list-group-item list-group-item-action border-0 py-2 project-chat-item @(ActiveChat == pChat ? "active fw-bold" : "bg-transparent")"
                                 @onclick="() => SelectChat(proj, pChat)">
                                 <i class="bi bi-chat-dots me-2 text-muted"></i> @pChat.Title
                             </li>
