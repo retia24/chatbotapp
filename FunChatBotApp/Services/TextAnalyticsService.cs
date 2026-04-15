@@ -2,11 +2,12 @@ using Azure;
 using Azure.AI.TextAnalytics;
 using Microsoft.Extensions.Configuration;
 using System;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 
 namespace FunChatBotApp.Services;
 
-public class TextAnalyticsService
+public partial class TextAnalyticsService
 {
     private readonly TextAnalyticsClient? _client;
 
@@ -25,23 +26,50 @@ public class TextAnalyticsService
 
     /// <summary>
     /// Kiszűri és maszkolja (pl. ***) a szenzitív adatokat a szövegben.
+    /// Azure AI Language és lokális RegEx (magyar azonosítókhoz) kombinációjával.
     /// </summary>
     public async Task<string> RedactPiiAsync(string text)
     {
-        if (_client == null || string.IsNullOrWhiteSpace(text))
+        if (string.IsNullOrWhiteSpace(text))
             return text;
 
-        try
-        {
-            // "hu" nyelv megadása a pontosabb felismeréshez (angol esetén "en")
-            PiiEntityCollection entities = await _client.RecognizePiiEntitiesAsync(text, "hu");
+        string redactedText = text;
 
-            return entities.RedactedText;
-        }
-        catch
+        // 1. Felhős NLP hívás az Azure AI Language segítségével
+        if (_client != null)
         {
-            // Fallback: hiba esetén ne akadjon meg a chat, adja vissza az eredetit
-            return text;
+            try
+            {
+                PiiEntityCollection entities = await _client.RecognizePiiEntitiesAsync(redactedText, "hu");
+                redactedText = entities.RedactedText;
+            }
+            catch
+            {
+                // Ha Azure error van, megyünk tovább a RegEx maszkolásra
+            }
         }
+
+        // 2. Lokális "Fine-Tuning" magyar azonosítókra RegEx-szel
+        // Magyar személyi igazolvány: Hat szám + Két Betű (pl. 594239CX)
+        redactedText = SzemelyiIgazolvanyRegex().Replace(redactedText, "********");
+
+        // TAJ szám: Kilenc szám formázva vagy egyben (pl. 123 456 789 vagy 123-456-789 vagy 123456789)
+        redactedText = TajSzamRegex().Replace(redactedText, "*********");
+
+        // Adóazonosító jel: 10 szám, 8-assal kezdődik
+        redactedText = AdoazonositoRegex().Replace(redactedText, "**********");
+
+        return redactedText;
     }
+
+    // RegEx minták kigenerálása (C# 11+ és .NET 7+ ajánlott módszer a teljesítményért)
+    
+    [GeneratedRegex(@"\b\d{6}[A-Za-z]{2}\b")]
+    private static partial Regex SzemelyiIgazolvanyRegex();
+
+    [GeneratedRegex(@"\b\d{3}[-\s]?\d{3}[-\s]?\d{3}\b")]
+    private static partial Regex TajSzamRegex();
+
+    [GeneratedRegex(@"\b8\d{9}\b")]
+    private static partial Regex AdoazonositoRegex();
 }
