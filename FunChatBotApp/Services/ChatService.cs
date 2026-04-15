@@ -22,15 +22,18 @@ public class ChatService
 
     private readonly ThemeService _themeService;
 
+    private readonly TextAnalyticsService _textAnalyticsService;
+
     // Beállítások a memóriához
     private const int SlidingWindowSize = 10; // Csak az utolsó N üzenetet küldjük a fő chatnél
     private const int SummarizationTrigger = 6; // Minden N-edik üzenetváltás után frissítjük a közös memóriát
 
-    public ChatService(IConfiguration config, CosmosDbService cosmosDb, Kernel kernel, ThemeService themeService)
+    public ChatService(IConfiguration config, CosmosDbService cosmosDb, Kernel kernel, ThemeService themeService, TextAnalyticsService textAnalyticsService)
     {
         _cosmosDb = cosmosDb;
         _kernel = kernel;
         _themeService = themeService;
+        _textAnalyticsService = textAnalyticsService;
 
         var endpoint = config["OpenAI:Endpoint"];
         var apiKey = config["OpenAI:ApiKey"]; // Key Vaultból
@@ -54,6 +57,7 @@ public class ChatService
     /// </summary>
     public async Task<string> ProcessProjectMessageAsync(Project project, ChatSession chat, List<Models.ChatMessage> currentMessages, string userMessage, string userId, bool includeDocumentContext = false, int? maxSentences = null)
     {
+        string safeUserMessage = await _textAnalyticsService.RedactPiiAsync(userMessage);
         // 1. Felhasználói üzenet rögzítése és mentése a CosmosDB-be
         var userMsg = new Models.ChatMessage 
         { 
@@ -61,7 +65,7 @@ public class ChatService
             ProjectId = project.Id,
             UserId = userId,
             Role = "user", 
-            Content = userMessage 
+            Content = safeUserMessage
         };
         currentMessages.Add(userMsg);
         await _cosmosDb.UpsertMessageAsync(userMsg, userId);
@@ -139,6 +143,9 @@ public class ChatService
             assistantResponse = "Ezeket a témákat találtam neked:";
         }
 
+        // --- ÚJ: Az AI válaszának maszkolása ---
+        assistantResponse = await _textAnalyticsService.RedactPiiAsync(assistantResponse);
+
         // 4. Asszisztens válaszának rögzítése és mentése a CosmosDB-be
         var assistantMsg = new Models.ChatMessage
         {
@@ -146,7 +153,7 @@ public class ChatService
             ProjectId = project.Id,
             UserId = userId,
             Role = "assistant",
-            Content = assistantResponse,
+            Content = assistantResponse, // Itt már a maszkolt szöveg kerül mentésre
             Topics = topicFilter.ExtractedTopics
         };
         currentMessages.Add(assistantMsg);
@@ -168,6 +175,7 @@ public class ChatService
     /// </summary>
     public async Task<string> ProcessStandaloneMessageAsync(ChatSession chat, List<Models.ChatMessage> currentMessages, string userMessage, string userId, bool includeDocumentContext = false, int? maxSentences = null)
     {
+        string safeUserMessage = await _textAnalyticsService.RedactPiiAsync(userMessage);
         // 1. User üzenet
         var userMsg = new Models.ChatMessage
         { 
@@ -175,7 +183,7 @@ public class ChatService
             ProjectId = chat.ProjectId,
             UserId = userId,
             Role = "user", 
-            Content = userMessage 
+            Content = safeUserMessage
         };
         currentMessages.Add(userMsg);
         await _cosmosDb.UpsertMessageAsync(userMsg, userId);
@@ -235,6 +243,9 @@ public class ChatService
         {
             assistantResponse = "Ezeket a témákat találtam neked:";
         }
+
+        // --- ÚJ: Az AI válaszának maszkolása ---
+        assistantResponse = await _textAnalyticsService.RedactPiiAsync(assistantResponse);
 
         // 2. Assistant üzenet mentése
         var assistantMsg = new Models.ChatMessage
