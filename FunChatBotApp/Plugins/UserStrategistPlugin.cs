@@ -17,22 +17,23 @@ namespace FunChatBotApp.Plugins
             _userId = userId;
         }
 
-        private async Task<string> ExtractUserDataAsync()
+        [KernelFunction("AnalyzeUserHistory")]
+        [Description("Kinyeri a felhasználó korábbi üzeneteit a CosmosDB-ből és generál egy viselkedési és érdeklődési profilt. MINDIG ezt hívd meg először, mielőtt témákat javasolnál!")]
+        public async Task<string> AnalyzeUserHistoryAsync(Kernel kernel)
         {
             var messages = await _dbService.GetRecentUserMessagesAcrossAllChatsAsync(_userId, 50); 
-            return string.Join("\n", messages.Select(m => m.Content));
-        }
-
-        [KernelFunction("GenerateTopicRecommendations")]
-        [Description("Generál 3 témajavaslatot a felhasználó korábbi chatjei alapján. Hívd meg, ha a felhasználó témákat, ötleteket vagy miről beszéljünk kérdést tesz fel.")]
-        public async Task<string> GenerateRecommendationsAsync(Kernel kernel)
-        {
-            string rawData = await ExtractUserDataAsync();
-            if (string.IsNullOrWhiteSpace(rawData)) return "Nincs elég adat az ajánláshoz.";
+            string rawData = string.Join("\n", messages.Select(m => m.Content));
+            if (string.IsNullOrWhiteSpace(rawData)) return "Nincs elég adat az elemzéshez.";
 
             var analyzerPrompt = $"Elemezd a következő beszélgetéseket, és írj egy pontos profilt a felhasználóról:\n{rawData}";
             var profileResult = await kernel.InvokePromptAsync(analyzerPrompt);
+            return profileResult.ToString();
+        }
 
+        [KernelFunction("GenerateTopicRecommendations")]
+        [Description("A korábbi elemzés vagy profil alapján generál 3 témajavaslatot. Ezt CSAK az AnalyzeUserHistory futtatása UTÁN hívd meg, annak eredményét felhasználva!")]
+        public async Task<string> GenerateRecommendationsAsync(Kernel kernel, [Description("A felhasználó profilja vagy elemzése")] string userProfile)
+        {
             var strategistPrompt = @"Te egy szigorú adatgeneráló vagy. A következő profil alapján találj ki pontosan 3 izgalmas témát a felhasználónak beszélgetésre.
 SZIGORÚ SZABÁLYOK:
 - Pontosan 3 témát írj!
@@ -42,7 +43,7 @@ SZIGORÚ SZABÁLYOK:
 - TILOS bármilyen bevezető vagy lezáró szöveget (pl. 'Íme a témák:', 'Ezt a 3 témát találtam neked') belevenni a válaszodba! A válaszod kizárólag a 3 téma szövegéből állhat.
 
 Profil:
-" + profileResult;
+" + userProfile;
             var finalRecommendations = await kernel.InvokePromptAsync(strategistPrompt);
 
             return finalRecommendations.ToString();

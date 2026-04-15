@@ -51,61 +51,8 @@ public class ChatService
     /// </summary>
     public async Task<string> ProcessProjectMessageAsync(Project project, ChatSession chat, List<Models.ChatMessage> currentMessages, string userMessage, string userId, bool includeDocumentContext = false, int? maxSentences = null)
     {
-        // Intelligens Intent (Szándék) felismerés Semantic Kernellel
-        var intentPrompt = "Megkért a felhasználó a legutóbbi üzenetében (vagy utalt rá), hogy ajánlj neki beszélgetési témákat, ötleteket, vagy hogy miről beszélgessetek? CSAK AZ 'IGEN' VAGY 'NEM' SZÓT ÍRD LE!\nFelhasználó: {{$input}}";
-        var intentResult = await _kernel.InvokePromptAsync(intentPrompt, new() { ["input"] = userMessage });
-        var isRecommendationRequested = intentResult.ToString().Trim().ToUpper().Contains("IGEN");
-
-        if (isRecommendationRequested)
-        {
-             var chatKernel = _kernel.Clone();
-             var plugin = new UserStrategistPlugin(_cosmosDb, userId);
-             chatKernel.Plugins.AddFromObject(plugin, "Strategist");
-
-             var executionSettings = new OpenAIPromptExecutionSettings
-             {
-                 ToolCallBehavior = ToolCallBehavior.AutoInvokeKernelFunctions
-             };
-
-             // Megmondjuk a fő LLM-nek, hogy sose csomagolja be az eszköz válaszát felesleges szöveggel
-             var strictPromptTemplate = @"Feladatod, hogy hívd meg a téma ajánló eszközt. 
-AMIRE KÜLÖN FIGYELJ: Amikor visszakapod az eszköz eredményét, azt KIZÁRÓLAG VÁLTOZTATÁSOK ÉS KIEGÉSZÍTÉS NÉLKÜL add vissza! 
-TILOS bármilyen bevezetőt (pl. 'Íme a 3 téma:', 'Ezt a hármat találtam:') vagy lezárást írnod a végső válaszodba!
-
-Felhasználó kérdése: {{$userInput}}";
-
-             var result = await chatKernel.InvokePromptAsync(strictPromptTemplate, new KernelArguments(executionSettings) { ["userInput"] = userMessage });
-             var topicsResponse = result.ToString();
-
-             // 1. Felhasználói üzenet rögzítése és mentése a CosmosDB-be
-             var usrMsg = new Models.ChatMessage 
-             { 
-                 ChatId = chat.Id,
-                 ProjectId = project.Id,
-                 UserId = userId,
-                 Role = "user", 
-                 Content = userMessage 
-             };
-             currentMessages.Add(usrMsg);
-             await _cosmosDb.UpsertMessageAsync(usrMsg, userId);
-
-             var asstMsg = new Models.ChatMessage
-             {
-                 ChatId = chat.Id,
-                 ProjectId = project.Id,
-                 UserId = userId,
-                 Role = "assistant",
-                 Content = "Ezeket a témákat találtam neked:", // Ide kérjük az állandó szöveget
-                 Topics = topicsResponse.Split('\n', StringSplitOptions.RemoveEmptyEntries).Select(t => t.Trim('-').Trim()).ToList()
-             };
-             currentMessages.Add(asstMsg);
-             await _cosmosDb.UpsertMessageAsync(asstMsg, userId);
-
-             return "Ezeket a témákat találtam neked:";
-        }
-
         // 1. Felhasználói üzenet rögzítése és mentése a CosmosDB-be
-        var userMsg = new Models.ChatMessage
+        var userMsg = new Models.ChatMessage 
         { 
             ChatId = chat.Id,
             ProjectId = project.Id,
@@ -116,16 +63,28 @@ Felhasználó kérdése: {{$userInput}}";
         currentMessages.Add(userMsg);
         await _cosmosDb.UpsertMessageAsync(userMsg, userId);
 
-        // 2. OpenAI kontextus építése (Sliding window + Joint Summary)
-        var openAiHistory = new List<OpenAI.Chat.ChatMessage>();
+        var chatKernel = _kernel.Clone();
+        var plugin = new UserStrategistPlugin(_cosmosDb, userId);
+        chatKernel.Plugins.AddFromObject(plugin, "Strategist");
+
+        var topicFilter = new TopicExtractionFilter();
+        chatKernel.FunctionInvocationFilters.Add(topicFilter);
+
+        var executionSettings = new OpenAIPromptExecutionSettings
+        {
+            ToolCallBehavior = ToolCallBehavior.AutoInvokeKernelFunctions
+        };
+
+        var chatCompletion = chatKernel.GetRequiredService<Microsoft.SemanticKernel.ChatCompletion.IChatCompletionService>();
+        var chatHistory = new Microsoft.SemanticKernel.ChatCompletion.ChatHistory();
 
         if (!string.IsNullOrEmpty(project.JointSummary))
         {
             // A projekt globális memóriáját System promptként adjuk át
-            openAiHistory.Add(new SystemChatMessage($"Project Context/Memory: {project.JointSummary}"));
+            chatHistory.AddSystemMessage($"Project Context/Memory: {project.JointSummary}");
         }
 
-        // Új logika: Külön tárolt dokumentum beemelése szükség esetén
+        // Külön tárolt dokumentum beemelése szükség esetén
         if (includeDocumentContext && !string.IsNullOrEmpty(chat.ActiveDocumentText))
         {
             var textToInject = chat.ActiveDocumentText;
@@ -133,12 +92,12 @@ Felhasználó kérdése: {{$userInput}}";
             {
                 textToInject = textToInject.Substring(0, 30000) + "\n... [TARTALOM LEVÁGVA A HOSSZ MIATT]";
             }
-            openAiHistory.Add(new SystemChatMessage($"Reference Document:\n<document>\n{textToInject}\n</document>"));
+            chatHistory.AddSystemMessage($"Reference Document:\n<document>\n{textToInject}\n</document>");
         }
 
         if (maxSentences.HasValue && maxSentences.Value > 0)
         {
-            openAiHistory.Add(new SystemChatMessage($"Please answer in at most {maxSentences.Value} sentences."));
+            chatHistory.AddSystemMessage($"Please answer in at most {maxSentences.Value} sentences.");
         }
 
         // Sliding window a teljes projekt üzeneteiből
@@ -156,16 +115,22 @@ Felhasználó kérdése: {{$userInput}}";
         foreach (var msg in allProjectMessages)
         {
             if (msg.Role == "user")
-                openAiHistory.Add(new UserChatMessage(msg.Content));
+                chatHistory.AddUserMessage(msg.Content);
             else if (msg.Role == "assistant")
-                openAiHistory.Add(new AssistantChatMessage(msg.Content));
+                chatHistory.AddAssistantMessage(msg.Content);
             else
-                openAiHistory.Add(new SystemChatMessage(msg.Content));
+                chatHistory.AddSystemMessage(msg.Content);
         }
 
-        // 3. Lekérjük a választ az OpenAI Complete Chat (Completion) API-tól
-        ClientResult<ChatCompletion> completion = await _chatClient.CompleteChatAsync(openAiHistory);
-        var assistantResponse = completion.Value.Content[0].Text;
+        // 3. Valódi automata tool calling (LLM dönti el, hogy meghívja-e az elemző+ajánló ágenseket a pluginból)
+        var result = await Microsoft.SemanticKernel.ChatCompletion.ChatCompletionServiceExtensions.GetChatMessageContentAsync(chatCompletion, chatHistory, executionSettings, chatKernel);
+        var assistantResponse = result.Content ?? "";
+
+        // Ha meghívta a Téma Generáló toolt, felülírjuk a szöveget
+        if (topicFilter.ExtractedTopics != null && topicFilter.ExtractedTopics.Any())
+        {
+            assistantResponse = "Ezeket a témákat találtam neked:";
+        }
 
         // 4. Asszisztens válaszának rögzítése és mentése a CosmosDB-be
         var assistantMsg = new Models.ChatMessage
@@ -174,7 +139,8 @@ Felhasználó kérdése: {{$userInput}}";
             ProjectId = project.Id,
             UserId = userId,
             Role = "assistant",
-            Content = assistantResponse
+            Content = assistantResponse,
+            Topics = topicFilter.ExtractedTopics
         };
         currentMessages.Add(assistantMsg);
         await _cosmosDb.UpsertMessageAsync(assistantMsg, userId);
@@ -182,7 +148,6 @@ Felhasználó kérdése: {{$userInput}}";
         allProjectMessages.Add(assistantMsg);
 
         // 5. Szummázás és mentés
-        // Ha elértük a limitet, akkor összevonjuk a mostani dolgokat a JointSummary-vel
         if (allProjectMessages.Count(m => m.Role == "user") % SummarizationTrigger == 0)
         {
             await UpdateProjectJointSummaryAsync(project, allProjectMessages, userId);
@@ -196,59 +161,6 @@ Felhasználó kérdése: {{$userInput}}";
     /// </summary>
     public async Task<string> ProcessStandaloneMessageAsync(ChatSession chat, List<Models.ChatMessage> currentMessages, string userMessage, string userId, bool includeDocumentContext = false, int? maxSentences = null)
     {
-        // Intelligens Intent (Szándék) felismerés Semantic Kernellel
-        var intentPrompt = "Megkért a felhasználó a legutóbbi üzenetében (vagy utalt rá), hogy ajánlj neki beszélgetési témákat, ötleteket, vagy hogy miről beszélgessetek? CSAK AZ 'IGEN' VAGY 'NEM' SZÓT ÍRD LE!\nFelhasználó: {{$input}}";
-        var intentResult = await _kernel.InvokePromptAsync(intentPrompt, new() { ["input"] = userMessage });
-        var isRecommendationRequested = intentResult.ToString().Trim().ToUpper().Contains("IGEN");
-
-        if (isRecommendationRequested)
-        {
-             var chatKernel = _kernel.Clone();
-             var plugin = new UserStrategistPlugin(_cosmosDb, userId);
-             chatKernel.Plugins.AddFromObject(plugin, "Strategist");
-
-             var executionSettings = new OpenAIPromptExecutionSettings
-             {
-                 ToolCallBehavior = ToolCallBehavior.AutoInvokeKernelFunctions
-             };
-
-             // Megmondjuk a fő LLM-nek, hogy sose csomagolja be az eszköz válaszát felesleges szöveggel
-             var strictPromptTemplate = @"Feladatod, hogy hívd meg a téma ajánló eszközt. 
-AMIRE KÜLÖN FIGYELJ: Amikor visszakapod az eszköz eredményét, azt KIZÁRÓLAG VÁLTOZTATÁSOK ÉS KIEGÉSZÍTÉS NÉLKÜL add vissza! 
-TILOS bármilyen bevezetőt (pl. 'Íme a 3 téma:', 'Ezt a hármat találtam:') vagy lezárást írnod a végső válaszodba!
-
-Felhasználó kérdése: {{$userInput}}";
-
-             var result = await chatKernel.InvokePromptAsync(strictPromptTemplate, new KernelArguments(executionSettings) { ["userInput"] = userMessage });
-             var topicsResponse = result.ToString();
-
-             // 1. User üzenet
-             var usrMsg = new Models.ChatMessage 
-             { 
-                 ChatId = chat.Id,
-                 ProjectId = chat.ProjectId,
-                 UserId = userId,
-                 Role = "user", 
-                 Content = userMessage 
-             };
-             currentMessages.Add(usrMsg);
-             await _cosmosDb.UpsertMessageAsync(usrMsg, userId);
-
-             var asstMsg = new Models.ChatMessage
-             {
-                 ChatId = chat.Id,
-                 ProjectId = chat.ProjectId,
-                 UserId = userId,
-                 Role = "assistant",
-                 Content = "Ezeket a témákat találtam neked:",
-                 Topics = topicsResponse.Split('\n', StringSplitOptions.RemoveEmptyEntries).Select(t => t.Trim('-').Trim()).ToList()
-             };
-             currentMessages.Add(asstMsg);
-             await _cosmosDb.UpsertMessageAsync(asstMsg, userId);
-
-             return "Ezeket a témákat találtam neked:";
-        }
-
         // 1. User üzenet
         var userMsg = new Models.ChatMessage
         { 
@@ -261,7 +173,20 @@ Felhasználó kérdése: {{$userInput}}";
         currentMessages.Add(userMsg);
         await _cosmosDb.UpsertMessageAsync(userMsg, userId);
 
-        var openAiHistory = new List<OpenAI.Chat.ChatMessage>();
+        var chatKernel = _kernel.Clone();
+        var plugin = new UserStrategistPlugin(_cosmosDb, userId);
+        chatKernel.Plugins.AddFromObject(plugin, "Strategist");
+
+        var topicFilter = new TopicExtractionFilter();
+        chatKernel.FunctionInvocationFilters.Add(topicFilter);
+
+        var executionSettings = new OpenAIPromptExecutionSettings
+        {
+            ToolCallBehavior = ToolCallBehavior.AutoInvokeKernelFunctions
+        };
+
+        var chatCompletion = chatKernel.GetRequiredService<Microsoft.SemanticKernel.ChatCompletion.IChatCompletionService>();
+        var chatHistory = new Microsoft.SemanticKernel.ChatCompletion.ChatHistory();
 
         // Külön tárolt dokumentum beemelése szükség esetén
         if (includeDocumentContext && !string.IsNullOrEmpty(chat.ActiveDocumentText))
@@ -271,36 +196,44 @@ Felhasználó kérdése: {{$userInput}}";
             {
                 textToInject = textToInject.Substring(0, 30000) + "\n... [TARTALOM LEVÁGVA A HOSSZ MIATT]";
             }
-            openAiHistory.Add(new SystemChatMessage($"Reference Document:\n<document>\n{textToInject}\n</document>"));
+            chatHistory.AddSystemMessage($"Reference Document:\n<document>\n{textToInject}\n</document>");
         }
 
         if (maxSentences.HasValue && maxSentences.Value > 0)
         {
-            openAiHistory.Add(new SystemChatMessage($"Please answer in at most {maxSentences.Value} sentences."));
+            chatHistory.AddSystemMessage($"Please answer in at most {maxSentences.Value} sentences.");
         }
 
         var recentMessages = currentMessages.TakeLast(SlidingWindowSize);
         foreach (var msg in recentMessages)
         {
             if (msg.Role == "user")
-                openAiHistory.Add(new UserChatMessage(msg.Content));
+                chatHistory.AddUserMessage(msg.Content);
             else if (msg.Role == "assistant")
-                openAiHistory.Add(new AssistantChatMessage(msg.Content));
+                chatHistory.AddAssistantMessage(msg.Content);
             else
-                openAiHistory.Add(new SystemChatMessage(msg.Content));
+                chatHistory.AddSystemMessage(msg.Content);
         }
 
-        ClientResult<ChatCompletion> completion = await _chatClient.CompleteChatAsync(openAiHistory);
-        var assistantResponse = completion.Value.Content[0].Text;
+        // 3. Valódi automata tool calling (LLM dönti el, hogy meghívja-e az elemző+ajánló ágenseket a pluginból)
+        var result = await Microsoft.SemanticKernel.ChatCompletion.ChatCompletionServiceExtensions.GetChatMessageContentAsync(chatCompletion, chatHistory, executionSettings, chatKernel);
+        var assistantResponse = result.Content ?? "";
 
-        // 2. Assistant üzenet
+        // Ha meghívta a Téma Generáló toolt, felülírjuk a szöveget
+        if (topicFilter.ExtractedTopics != null && topicFilter.ExtractedTopics.Any())
+        {
+            assistantResponse = "Ezeket a témákat találtam neked:";
+        }
+
+        // 2. Assistant üzenet mentése
         var assistantMsg = new Models.ChatMessage
         {
             ChatId = chat.Id,
             ProjectId = chat.ProjectId,
             UserId = userId,
             Role = "assistant",
-            Content = assistantResponse
+            Content = assistantResponse,
+            Topics = topicFilter.ExtractedTopics
         };
         currentMessages.Add(assistantMsg);
         await _cosmosDb.UpsertMessageAsync(assistantMsg, userId);
