@@ -87,10 +87,24 @@
 
     private async Task CreateStandaloneChat(string title)
     {
-        var chat = new ChatSession { Title = title };
-        await CosmosDb.UpsertStandaloneChatAsync(chat, currentUserId);
-        standaloneChats.Add(chat);
-        await HandleSelectChat((null, chat));
+        isTyping = true;
+        StateHasChanged();
+        try
+        {
+            var chat = new ChatSession { Title = title };
+            await CosmosDb.UpsertStandaloneChatAsync(chat, currentUserId);
+            standaloneChats.Add(chat);
+
+            // Új chat induláskor meghívjuk a Semantic Kernel ajánló logikát
+            await ChatSvc.GenerateInitialRecommendationsAsync(chat, currentUserId);
+
+            await HandleSelectChat((null, chat));
+        }
+        finally
+        {
+            isTyping = false;
+            StateHasChanged();
+        }
     }
 
     private async Task CreateProject(string name)
@@ -102,15 +116,28 @@
 
     private async Task HandleCreateProjectChat((Project Project, string Title) args)
     {
-        var pChat = new ChatSession { Title = args.Title };
-        await CosmosDb.UpsertProjectChatAsync(pChat, args.Project.Id, currentUserId);
+        isTyping = true;
+        StateHasChanged();
+        try
+        {
+            var pChat = new ChatSession { Title = args.Title };
+            await CosmosDb.UpsertProjectChatAsync(pChat, args.Project.Id, currentUserId);
 
-        if (!projectChatsByProject.ContainsKey(args.Project.Id))
-            projectChatsByProject[args.Project.Id] = new List<ChatSession>();
+            if (!projectChatsByProject.ContainsKey(args.Project.Id))
+                projectChatsByProject[args.Project.Id] = new List<ChatSession>();
 
-        projectChatsByProject[args.Project.Id].Add(pChat);
+            projectChatsByProject[args.Project.Id].Add(pChat);
 
-        await HandleSelectChat((args.Project, pChat));
+            // Új projekt chat induláskor is meghívjuk az ajánló logikát
+            await ChatSvc.GenerateInitialRecommendationsAsync(pChat, currentUserId);
+
+            await HandleSelectChat((args.Project, pChat));
+        }
+        finally
+        {
+            isTyping = false;
+            StateHasChanged();
+        }
     }
 
     private async Task HandleSelectChat((Project? Project, ChatSession Chat) args)

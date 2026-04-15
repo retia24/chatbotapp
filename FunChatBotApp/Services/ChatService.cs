@@ -242,6 +242,43 @@ public class ChatService
     }
 
     /// <summary>
+    /// Új chat nyitásakor automatikusan legenerálja az üdvözlő üzenetet 3 ajánlott témával.
+    /// </summary>
+    public async Task<Models.ChatMessage> GenerateInitialRecommendationsAsync(ChatSession chat, string userId)
+    {
+        var plugin = new UserStrategistPlugin(_cosmosDb, userId);
+        
+        // 1. Profil elemzés (ha van elég adat)
+        var profile = await plugin.AnalyzeUserHistoryAsync(_kernel);
+        
+        string topicsResponse;
+        if (profile == "Nincs elég adat az elemzéshez.")
+        {
+            topicsResponse = "Általános témák:\n- Milyen volt a mai napod?\n- Milyen projekteken vagy feladatokon dolgozol mostanában?\n- Mi volt a legérdekesebb dolog, amit mostanában tanultál?";
+        }
+        else
+        {
+            // 2. Témák generálása
+            topicsResponse = await plugin.GenerateRecommendationsAsync(_kernel, profile);
+        }
+
+        var topics = topicsResponse.Split('\n', StringSplitOptions.RemoveEmptyEntries).Select(t => t.Trim('-').Trim()).ToList();
+        
+        var asstMsg = new Models.ChatMessage
+        {
+            ChatId = chat.Id,
+            ProjectId = chat.ProjectId, // Ha projekt része, a db szolgáltatás itt tölti fel
+            UserId = userId,
+            Role = "assistant",
+            Content = "Szia! Új chatet nyitottál. Ezeket a témákat javaslom kezdésnek:",
+            Topics = topics
+        };
+        
+        await _cosmosDb.UpsertMessageAsync(asstMsg, userId);
+        return asstMsg;
+    }
+
+    /// <summary>
     /// Belső metódus a projekt szintű szummarizációhoz
     /// </summary>
     private async Task UpdateProjectJointSummaryAsync(Project project, List<Models.ChatMessage> currentMessages, string userId)
