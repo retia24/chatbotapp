@@ -18,7 +18,7 @@ namespace FunChatBotApp.Plugins
         }
 
         [KernelFunction("AnalyzeUserHistory")]
-        [Description("Kinyeri a felhasználó korábbi üzeneteit a CosmosDB-ből és generál egy viselkedési és érdeklődési profilt. MINDIG ezt hívd meg először, mielőtt témákat javasolnál!")]
+        [Description("Elemzi a felhasználó korábbi beszélgetéseit és létrehoz egy viselkedési és érdeklődési profilt. Csak akkor hívd meg, ha a felhasználó KIFEJEZETTEN arra kér, hogy tudj meg többet róla, vagy elemezd a profilját.")]
         public async Task<string> AnalyzeUserHistoryAsync(Kernel kernel)
         {
             var messages = await _dbService.GetRecentUserMessagesAcrossAllChatsAsync(_userId, 50); 
@@ -31,9 +31,13 @@ namespace FunChatBotApp.Plugins
         }
 
         [KernelFunction("GenerateTopicRecommendations")]
-        [Description("A korábbi elemzés vagy profil alapján generál 3 témajavaslatot. Ezt CSAK az AnalyzeUserHistory futtatása UTÁN hívd meg, annak eredményét felhasználva!")]
-        public async Task<string> GenerateRecommendationsAsync(Kernel kernel, [Description("A felhasználó profilja vagy elemzése")] string userProfile)
+        [Description("3 témajavaslatot generál a felhasználónak. Csak akkor hívd meg, ha a felhasználó KIFEJEZETTEN KÉRI, hogy ajánlj neki témákat, miről beszélgessetek, vagy adj neki ötleteket a beszélgetésre.")]
+        public async Task<string> GenerateRecommendationsAsync(Kernel kernel, [Description("A felhasználó profilja vagy elemzése. Opcionális.")] string userProfile = "")
         {
+            if (string.IsNullOrWhiteSpace(userProfile))
+            {
+               userProfile = await AnalyzeUserHistoryAsync(kernel);
+            }
             var strategistPrompt = @"Te egy szigorú adatgeneráló vagy. A következő profil alapján találj ki pontosan 3 izgalmas témát a felhasználónak beszélgetésre.
 SZIGORÚ SZABÁLYOK:
 - Pontosan 3 témát írj!

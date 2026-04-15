@@ -100,6 +100,9 @@ public class ChatService
             chatHistory.AddSystemMessage($"Please answer in at most {maxSentences.Value} sentences.");
         }
 
+        // System prompt, hogy az LLM pontosan tudja, mi a dolga általában
+        chatHistory.AddSystemMessage("Te egy hasznos és intelligens AI asszisztens vagy. CSAK AKKOR használj eszközöket (tools), ha a felhasználó KIFEJEZETTEN témát kér vagy az adatait szeretné elemeztetni. Egyéb üzenetekre válaszolj normálisan, eszközhasználat nélkül.");
+
         // Sliding window a teljes projekt üzeneteiből
         var allProjectMessages = await _cosmosDb.GetProjectMessagesAsync(project.Id, userId, SlidingWindowSize);
         if (!allProjectMessages.Any(m => m.Id == userMsg.Id))
@@ -203,6 +206,9 @@ public class ChatService
         {
             chatHistory.AddSystemMessage($"Please answer in at most {maxSentences.Value} sentences.");
         }
+
+        // System prompt, hogy az LLM pontosan tudja, mi a dolga általában
+        chatHistory.AddSystemMessage("Te egy hasznos és intelligens AI asszisztens vagy. CSAK AKKOR használj eszközöket (tools), ha a felhasználó KIFEJEZETTEN témát kér vagy az adatait szeretné elemeztetni. Egyéb üzenetekre válaszolj normálisan, eszközhasználat nélkül.");
 
         var recentMessages = currentMessages.TakeLast(SlidingWindowSize);
         foreach (var msg in recentMessages)
