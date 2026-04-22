@@ -143,7 +143,7 @@ public class ChatService
             assistantResponse = "Ezeket a témákat találtam neked:";
         }
 
-        // --- ÚJ: Az AI válaszának maszkolása ---
+        //Az AI válaszának maszkolása ---
         assistantResponse = await _textAnalyticsService.RedactPiiAsync(assistantResponse);
 
         // 4. Asszisztens válaszának rögzítése és mentése a CosmosDB-be
@@ -171,7 +171,7 @@ public class ChatService
     }
 
     /// <summary>
-    /// "Szimpla", egyéni beszélgetés külön projekt és memória nélkül
+    /// "Szimpla", egyéni beszélgetés külön projekt és közös memória nélkül
     /// </summary>
     public async Task<string> ProcessStandaloneMessageAsync(ChatSession chat, List<Models.ChatMessage> currentMessages, string userMessage, string userId, bool includeDocumentContext = false, int? maxSentences = null)
     {
@@ -363,7 +363,7 @@ Your job is to extract the key facts, context, details, and decisions from this 
         }
 
         // 3. Projekt joint summary frissítése a chat áthelyezése miatt
-        // Itt nem csak egy általános ablakot (SlidingWindow) kérünk le, hanem az imént mozgatott üzeneteket blendeljük bele a projekt memóriájába!
+        // Itt nem csak egy általános ablakot (SlidingWindow) kérünk le, hanem az imént mozgatott üzeneteket blendeljük bele a projekt memóriájába
         if (messages.Any(m => m.Role != "system"))
         {
             await MergeChatIntoProjectSummaryAsync(targetProject, messages.Where(m => m.Role != "system").ToList(), userId);

@@ -1,6 +1,8 @@
 @using FunChatBotApp.Models
 @using Markdig
 @inject FunChatBotApp.Services.ThemeService ThemeSvc
+@inject IJSRuntime JS
+@implements IAsyncDisposable
 
 <div class="col-md-9 p-0 d-flex flex-column position-relative bg-body chat-area-wrapper">
     @if (ActiveChat == null)
@@ -163,7 +165,10 @@
 
             <!-- Message Input -->
             <div class="input-group shadow-sm rounded-pill overflow-hidden border">
-                <input type="text" class="form-control border-0 px-4 py-2 message-input bg-body text-body" @bind="UserInput" @bind:event="oninput" @onkeyup="HandleKeyUp" placeholder="Írj egy üzenetet..." disabled="@(IsTyping || IsMovingChat)" />
+                <button class="btn @(isListening ? "btn-danger" : "btn-outline-secondary") px-3 py-2 border-0" @onclick="ToggleListening" disabled="@(IsTyping || IsMovingChat)" title="Hangalapú bevitel">
+                    @(isListening ? "⏹️" : "🎤")
+                </button>
+                <input type="text" class="form-control border-0 px-3 py-2 message-input bg-body text-body" @bind="UserInput" @bind:event="oninput" @onkeyup="HandleKeyUp" placeholder="Írj egy üzenetet..." disabled="@(IsTyping || IsMovingChat)" />
                 <button class="btn btn-primary px-4 py-2" @onclick="SendMessage" disabled="@(IsTyping || IsMovingChat || string.IsNullOrWhiteSpace(UserInput))">
                     Küldés
                 </button>
@@ -193,6 +198,59 @@
     private int MaxSentences { get; set; } = 0;
     private bool ShowSummary { get; set; } = false;
     private string SelectedProjectIdToMove { get; set; } = "";
+
+    private bool isListening = false;
+    private DotNetObjectReference<ChatArea>? objRef;
+
+    protected override void OnInitialized()
+    {
+        objRef = DotNetObjectReference.Create(this);
+    }
+
+    private async Task ToggleListening()
+    {
+        if (isListening)
+        {
+            await JS.InvokeVoidAsync("speechRecognitionService.stop");
+            isListening = false;
+        }
+        else
+        {
+            isListening = true;
+            StateHasChanged();
+            await JS.InvokeVoidAsync("speechRecognitionService.start", objRef, "hu-HU");
+        }
+    }
+
+    [JSInvokable]
+    public void ReceiveTranscript(string transcript)
+    {
+        UserInput += (string.IsNullOrEmpty(UserInput) ? "" : " ") + transcript;
+        StateHasChanged();
+    }
+
+    [JSInvokable]
+    public void ReceiveError(string error)
+    {
+        Console.WriteLine($"Hangfelismerési hiba: {error}");
+        isListening = false;
+        StateHasChanged();
+    }
+
+    [JSInvokable]
+    public void RecognitionEnded()
+    {
+        isListening = false;
+        StateHasChanged();
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (objRef != null)
+        {
+            objRef.Dispose();
+        }
+    }
 
     private void ToggleSummary()
     {

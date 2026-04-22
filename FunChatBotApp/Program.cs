@@ -60,7 +60,7 @@ namespace FunChatBotApp
             builder.Services.AddRazorComponents()
                 .AddInteractiveServerComponents();
 
-            // Saját service-ek regisztrálása (ezeket a következő lépésben hozzuk létre)
+            // Saját service-ek regisztrálása 
             builder.Services.AddSingleton<CosmosDbService>();
             builder.Services.AddSingleton<TextAnalyticsService>();
             builder.Services.AddScoped<DocumentService>();

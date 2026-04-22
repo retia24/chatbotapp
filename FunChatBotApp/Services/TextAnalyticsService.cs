@@ -62,7 +62,7 @@ public partial class TextAnalyticsService
         return redactedText;
     }
 
-    // RegEx minták kigenerálása (C# 11+ és .NET 7+ ajánlott módszer a teljesítményért)
+    // RegEx minták kigenerálása
     
     [GeneratedRegex(@"\b\d{6}[A-Za-z]{2}\b")]
     private static partial Regex SzemelyiIgazolvanyRegex();
