@@ -38,18 +38,7 @@ public class TranscriptionService
 
         await blobClient.UploadAsync(fileStream, overwrite: true);
 
-        // SAS token generálás a Speech API számára (privát blobhoz)
-        var sasBuilder = new BlobSasBuilder
-        {
-            BlobContainerName = _blobContainer,
-            BlobName = blobName,
-            Resource = "b",
-            StartsOn = DateTimeOffset.UtcNow,
-            ExpiresOn = DateTimeOffset.UtcNow.AddDays(1)
-        };
-        sasBuilder.SetPermissions(BlobSasPermissions.Read);
-
-        Uri sasUri = blobClient.GenerateSasUri(sasBuilder);
+        // A SAS token generáló rész ki van törölve, mivel Managed Identity-t fogunk használni.
 
         // 2. Dokumentum mentése Cosmos DB-be Uploading státusszal
         var doc = new AudioTranscriptionDocument
@@ -63,7 +52,8 @@ public class TranscriptionService
         // 3. Hívás a Speech Service Batch API-hoz
         var requestPayload = new
         {
-            contentUrls = new[] { sasUri.ToString() },
+            // Közvetlenül a blob URI-t adjuk meg SAS token nélkül
+            contentUrls = new[] { blobClient.Uri.ToString() },
             properties = new
             {
                 diarizationEnabled = false,
