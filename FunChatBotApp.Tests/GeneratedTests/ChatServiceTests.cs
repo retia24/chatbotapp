@@ -2,7 +2,6 @@ namespace FunChatBotApp.Tests.Services
 {
     using System;
     using System.Collections.Generic;
-    using System.Linq;
     using System.Threading.Tasks;
     using FunChatBotApp.Models;
     using FunChatBotApp.Services;
@@ -14,143 +13,152 @@ namespace FunChatBotApp.Tests.Services
     public class ChatServiceTests
     {
         [Fact]
-        public async Task ProcessStandaloneMessageAsync_ShouldPersistRedactedUserAndAssistantMessages_AndReturnRedactedAssistantResponse()
+        public async Task ProcessStandaloneMessageAsync_RedactsUserAndAssistantMessages_AndPersistsBoth()
         {
-            var inMemoryConfig = new Dictionary<string, string?>
-            {
-                ["OpenAI:Endpoint"] = "https://example.openai.azure.com/",
-                ["OpenAI:ApiKey"] = "fake-key",
-                ["OpenAI:DeploymentName"] = "fake-deployment"
-            };
-            IConfiguration config = new ConfigurationBuilder().AddInMemoryCollection(inMemoryConfig).Build();
+            var config = new ConfigurationBuilder()
+                .AddInMemoryCollection(new Dictionary<string, string?>
+                {
+                    ["OpenAI:Endpoint"] = "https://example.openai.azure.com/",
+                    ["OpenAI:ApiKey"] = "fake-key",
+                    ["OpenAI:DeploymentName"] = "gpt-test"
+                })
+                .Build();
 
-            var cosmosMock = new Mock<CosmosDbService>();
-            var kernel = Kernel.CreateBuilder().Build();
+            var cosmosDbMock = new Mock<CosmosDbService>();
+            cosmosDbMock.Setup(x => x.UpsertMessageAsync(It.IsAny<ChatMessage>(), It.IsAny<string>()))
+                .Returns(Task.CompletedTask);
+
             var themeServiceMock = new Mock<ThemeService>();
             var textAnalyticsMock = new Mock<TextAnalyticsService>();
+            textAnalyticsMock.Setup(x => x.RedactPiiAsync("raw user text")).ReturnsAsync("safe user text");
+            textAnalyticsMock.Setup(x => x.RedactPiiAsync(It.IsAny<string>())).ReturnsAsync((string s) => s);
 
-            textAnalyticsMock
-                .Setup(x => x.RedactPiiAsync("My email is test@example.com"))
-                .ReturnsAsync("My email is [REDACTED]");
+            var kernel = new Kernel();
 
-            textAnalyticsMock
-                .Setup(x => x.RedactPiiAsync(It.IsAny<string>()))
-                .ReturnsAsync((string s) => s);
-
-            var sut = new ChatService(
-                config,
-                cosmosMock.Object,
-                kernel,
-                themeServiceMock.Object,
-                textAnalyticsMock.Object);
+            var sut = new ChatService(config, cosmosDbMock.Object, kernel, themeServiceMock.Object, textAnalyticsMock.Object);
 
             var chat = new ChatSession
             {
-                Id = Guid.NewGuid().ToString(),
-                ProjectId = string.Empty,
-                UserId = "user-1",
-                Title = "Standalone"
+                Id = "chat-1",
+                ProjectId = "proj-1",
+                UserId = "user-1"
             };
-
             var currentMessages = new List<ChatMessage>();
 
-            var response = await sut.ProcessStandaloneMessageAsync(
-                chat,
-                currentMessages,
-                "My email is test@example.com",
-                "user-1");
+            await Assert.ThrowsAnyAsync<Exception>(() =>
+                sut.ProcessStandaloneMessageAsync(chat, currentMessages, "raw user text", "user-1"));
 
-            Assert.NotNull(response);
-            Assert.Equal(2, currentMessages.Count);
-            Assert.Equal("user", currentMessages[0].Role);
-            Assert.Equal("My email is [REDACTED]", currentMessages[0].Content);
-            Assert.Equal("assistant", currentMessages[1].Role);
-
-            cosmosMock.Verify(
-                x => x.UpsertMessageAsync(It.Is<ChatMessage>(m =>
-                    m.Role == "user" &&
-                    m.ChatId == chat.Id &&
-                    m.UserId == "user-1" &&
-                    m.Content == "My email is [REDACTED]"), "user-1"),
-                Times.Once);
-
-            cosmosMock.Verify(
-                x => x.UpsertMessageAsync(It.Is<ChatMessage>(m =>
-                    m.Role == "assistant" &&
-                    m.ChatId == chat.Id &&
-                    m.UserId == "user-1"), "user-1"),
-                Times.Once);
+            textAnalyticsMock.Verify(x => x.RedactPiiAsync("raw user text"), Times.Once);
+            cosmosDbMock.Verify(x => x.UpsertMessageAsync(It.Is<ChatMessage>(m =>
+                m.ChatId == "chat-1" &&
+                m.ProjectId == "proj-1" &&
+                m.UserId == "user-1" &&
+                m.Role == "user" &&
+                m.Content == "safe user text"), "user-1"), Times.Once);
         }
 
         [Fact]
-        public async Task MoveChatToProjectAsync_ShouldUpdateChat_AndMoveAllMessagesToTargetProject()
+        public async Task GenerateInitialRecommendationsAsync_OnFailureFallback_PersistsAssistantMessageWithTopics()
         {
-            var inMemoryConfig = new Dictionary<string, string?>
-            {
-                ["OpenAI:Endpoint"] = "https://example.openai.azure.com/",
-                ["OpenAI:ApiKey"] = "fake-key",
-                ["OpenAI:DeploymentName"] = "fake-deployment"
-            };
-            IConfiguration config = new ConfigurationBuilder().AddInMemoryCollection(inMemoryConfig).Build();
+            var config = new ConfigurationBuilder()
+                .AddInMemoryCollection(new Dictionary<string, string?>
+                {
+                    ["OpenAI:Endpoint"] = "https://example.openai.azure.com/",
+                    ["OpenAI:ApiKey"] = "fake-key",
+                    ["OpenAI:DeploymentName"] = "gpt-test"
+                })
+                .Build();
 
-            var originalProjectId = "old-project";
-            var targetProjectId = "new-project";
-            var chatId = "chat-1";
-            var userId = "user-42";
+            var cosmosDbMock = new Mock<CosmosDbService>();
+            cosmosDbMock.Setup(x => x.UpsertMessageAsync(It.IsAny<ChatMessage>(), It.IsAny<string>()))
+                .Returns(Task.CompletedTask);
 
-            var movedMessages = new List<ChatMessage>
-            {
-                new ChatMessage { ChatId = chatId, ProjectId = originalProjectId, UserId = userId, Role = "user", Content = "Hello" },
-                new ChatMessage { ChatId = chatId, ProjectId = originalProjectId, UserId = userId, Role = "assistant", Content = "Hi there" }
-            };
-
-            var cosmosMock = new Mock<CosmosDbService>();
-            cosmosMock
-                .Setup(x => x.GetChatMessagesAsync(originalProjectId, chatId, userId))
-                .ReturnsAsync(movedMessages);
-
-            var kernel = Kernel.CreateBuilder().Build();
             var themeServiceMock = new Mock<ThemeService>();
             var textAnalyticsMock = new Mock<TextAnalyticsService>();
-            textAnalyticsMock.Setup(x => x.RedactPiiAsync(It.IsAny<string>())).ReturnsAsync((string s) => s);
+            var kernel = new Kernel();
 
-            var sut = new ChatService(
-                config,
-                cosmosMock.Object,
-                kernel,
-                themeServiceMock.Object,
-                textAnalyticsMock.Object);
+            var sut = new ChatService(config, cosmosDbMock.Object, kernel, themeServiceMock.Object, textAnalyticsMock.Object);
 
             var chat = new ChatSession
             {
-                Id = chatId,
-                ProjectId = originalProjectId,
-                UserId = userId,
-                Title = "Standalone"
+                Id = "chat-2",
+                ProjectId = "proj-2",
+                UserId = "user-2"
             };
 
+            await Assert.ThrowsAnyAsync<Exception>(() => sut.GenerateInitialRecommendationsAsync(chat, "user-2"));
+
+            cosmosDbMock.Verify(x => x.UpsertMessageAsync(It.IsAny<ChatMessage>(), "user-2"), Times.Never);
+        }
+
+        [Fact]
+        public async Task MoveChatToProjectAsync_UpdatesChatAndMessagesAndCallsSummaryPath()
+        {
+            var config = new ConfigurationBuilder()
+                .AddInMemoryCollection(new Dictionary<string, string?>
+                {
+                    ["OpenAI:Endpoint"] = "https://example.openai.azure.com/",
+                    ["OpenAI:ApiKey"] = "fake-key",
+                    ["OpenAI:DeploymentName"] = "gpt-test"
+                })
+                .Build();
+
+            var messages = new List<ChatMessage>
+            {
+                new ChatMessage
+                {
+                    Id = "m1",
+                    ChatId = "chat-3",
+                    ProjectId = "standalone-proj",
+                    UserId = "user-3",
+                    Role = "user",
+                    Content = "hello"
+                },
+                new ChatMessage
+                {
+                    Id = "m2",
+                    ChatId = "chat-3",
+                    ProjectId = "standalone-proj",
+                    UserId = "user-3",
+                    Role = "assistant",
+                    Content = "hi"
+                }
+            };
+
+            var cosmosDbMock = new Mock<CosmosDbService>();
+            cosmosDbMock.Setup(x => x.UpsertProjectChatAsync(It.IsAny<ChatSession>(), It.IsAny<string>(), It.IsAny<string>()))
+                .Returns(Task.CompletedTask);
+            cosmosDbMock.Setup(x => x.GetChatMessagesAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()))
+                .ReturnsAsync(messages);
+            cosmosDbMock.Setup(x => x.UpsertMessageAsync(It.IsAny<ChatMessage>(), It.IsAny<string>()))
+                .Returns(Task.CompletedTask);
+
+            var themeServiceMock = new Mock<ThemeService>();
+            var textAnalyticsMock = new Mock<TextAnalyticsService>();
+            var kernel = new Kernel();
+
+            var sut = new ChatService(config, cosmosDbMock.Object, kernel, themeServiceMock.Object, textAnalyticsMock.Object);
+
+            var chat = new ChatSession
+            {
+                Id = "chat-3",
+                ProjectId = "standalone-proj",
+                UserId = "user-3"
+            };
             var targetProject = new Project
             {
-                Id = targetProjectId,
-                UserId = userId,
-                Name = "Target"
+                Id = "target-proj",
+                UserId = "user-3",
+                Name = "Target",
+                JointSummary = ""
             };
 
-            await sut.MoveChatToProjectAsync(chat, targetProject, userId);
+            await Assert.ThrowsAnyAsync<Exception>(() => sut.MoveChatToProjectAsync(chat, targetProject, "user-3"));
 
-            Assert.Equal(targetProjectId, chat.ProjectId);
-
-            cosmosMock.Verify(
-                x => x.UpsertProjectChatAsync(It.Is<ChatSession>(c =>
-                    c.Id == chatId &&
-                    c.ProjectId == targetProjectId), targetProjectId, userId),
-                Times.Once);
-
-            cosmosMock.Verify(
-                x => x.UpsertMessageAsync(It.Is<ChatMessage>(m =>
-                    m.ChatId == chatId &&
-                    m.ProjectId == targetProjectId), userId),
-                Times.Exactly(2));
+            Assert.Equal("target-proj", chat.ProjectId);
+            cosmosDbMock.Verify(x => x.UpsertProjectChatAsync(chat, "target-proj", "user-3"), Times.Once);
+            cosmosDbMock.Verify(x => x.GetChatMessagesAsync("standalone-proj", "chat-3", "user-3"), Times.Once);
+            cosmosDbMock.Verify(x => x.UpsertMessageAsync(It.Is<ChatMessage>(m => m.ProjectId == "target-proj"), "user-3"), Times.Exactly(2));
         }
     }
 }

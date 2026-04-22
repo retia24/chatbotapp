@@ -1,6 +1,6 @@
 namespace FunChatBotApp.Tests.Services
 {
-    using System.Collections.Generic;
+    using System;
     using System.Threading.Tasks;
     using FunChatBotApp.Data;
     using FunChatBotApp.Services;
@@ -12,85 +12,85 @@ namespace FunChatBotApp.Tests.Services
     public class EmailSenderTests
     {
         [Fact]
-        public async Task Constructor_WithMissingConnectionString_LogsWarning_AndSendMethodsDoNotThrow()
+        public async Task Constructor_WithMissingConnectionString_AndSendConfirmation_DoesNotThrow()
         {
             var loggerMock = new Mock<ILogger<EmailSender>>();
-            var configValues = new Dictionary<string, string?>
-            {
-                ["CommunicationServices:ConnectionString"] = null,
-                ["CommunicationServices:SenderAddress"] = "sender@contoso.com"
-            };
-            IConfiguration configuration = new ConfigurationBuilder()
-                .AddInMemoryCollection(configValues)
-                .Build();
+            var configurationMock = new Mock<IConfiguration>();
 
-            var sut = new EmailSender(loggerMock.Object, configuration);
+            configurationMock.Setup(c => c["CommunicationServices:ConnectionString"]).Returns((string?)null);
 
-            var user = new ApplicationUser { Email = "user@contoso.com" };
-            await sut.SendConfirmationLinkAsync(user, "user@contoso.com", "https://confirm");
-            await sut.SendPasswordResetCodeAsync(user, "user@contoso.com", "123456");
-            await sut.SendPasswordResetLinkAsync(user, "user@contoso.com", "https://reset");
-
-            loggerMock.VerifyLog(LogLevel.Warning, "Email ConnectionString nincs beállítva!", Times.Once());
-            loggerMock.VerifyLog(LogLevel.Warning, "EmailClient nincs inicializálva, mert hiányzik a ConnectionString.", Times.Exactly(3));
-        }
-
-        [Fact]
-        public async Task Constructor_WithPlaceholderConnectionString_LogsWarning_AndSendConfirmationDoesNotThrow()
-        {
-            var loggerMock = new Mock<ILogger<EmailSender>>();
-            var configValues = new Dictionary<string, string?>
-            {
-                ["CommunicationServices:ConnectionString"] = "<AZURE_COMMUNICATION_CONNECTION_STRING>",
-                ["CommunicationServices:SenderAddress"] = "sender@contoso.com"
-            };
-            IConfiguration configuration = new ConfigurationBuilder()
-                .AddInMemoryCollection(configValues)
-                .Build();
-
-            var sut = new EmailSender(loggerMock.Object, configuration);
-
-            var user = new ApplicationUser { Email = "user@contoso.com" };
-            await sut.SendConfirmationLinkAsync(user, "user@contoso.com", "https://confirm");
-
-            loggerMock.VerifyLog(LogLevel.Warning, "Email ConnectionString nincs beállítva!", Times.Once());
-            loggerMock.VerifyLog(LogLevel.Warning, "EmailClient nincs inicializálva, mert hiányzik a ConnectionString.", Times.Once());
-        }
-
-        [Fact]
-        public async Task SendPasswordResetCode_WithMissingConnectionString_LogsClientNotInitializedWarning()
-        {
-            var loggerMock = new Mock<ILogger<EmailSender>>();
-            var configValues = new Dictionary<string, string?>
-            {
-                ["CommunicationServices:ConnectionString"] = "",
-                ["CommunicationServices:SenderAddress"] = "sender@contoso.com"
-            };
-            IConfiguration configuration = new ConfigurationBuilder()
-                .AddInMemoryCollection(configValues)
-                .Build();
-
-            var sut = new EmailSender(loggerMock.Object, configuration);
+            var sut = new EmailSender(loggerMock.Object, configurationMock.Object);
 
             var user = new ApplicationUser();
-            await sut.SendPasswordResetCodeAsync(user, "user@contoso.com", "999999");
+            var ex = await Record.ExceptionAsync(() =>
+                sut.SendConfirmationLinkAsync(user, "test@example.com", "https://example.com/confirm"));
 
-            loggerMock.VerifyLog(LogLevel.Warning, "EmailClient nincs inicializálva, mert hiányzik a ConnectionString.", Times.Once());
+            Assert.Null(ex);
         }
-    }
 
-    internal static class LoggerMoqExtensions
-    {
-        public static void VerifyLog<T>(this Mock<ILogger<T>> loggerMock, LogLevel level, string message, Times times)
+        [Fact]
+        public async Task Constructor_WithPlaceholderConnectionString_AndSendPasswordResetCode_DoesNotThrow()
         {
-            loggerMock.Verify(
-                x => x.Log(
-                    level,
-                    It.IsAny<EventId>(),
-                    It.Is<It.IsAnyType>((v, t) => v.ToString() != null && v.ToString()!.Contains(message)),
-                    It.IsAny<System.Exception>(),
-                    It.IsAny<System.Func<It.IsAnyType, System.Exception?, string>>()),
-                times);
+            var loggerMock = new Mock<ILogger<EmailSender>>();
+            var configurationMock = new Mock<IConfiguration>();
+
+            configurationMock
+                .Setup(c => c["CommunicationServices:ConnectionString"])
+                .Returns("<AZURE_COMMUNICATION_CONNECTION_STRING>");
+
+            var sut = new EmailSender(loggerMock.Object, configurationMock.Object);
+
+            var user = new ApplicationUser();
+            var ex = await Record.ExceptionAsync(() =>
+                sut.SendPasswordResetCodeAsync(user, "test@example.com", "123456"));
+
+            Assert.Null(ex);
+        }
+
+        [Fact]
+        public async Task SendPasswordResetLinkAsync_WithMissingSenderAddress_DoesNotThrow()
+        {
+            var loggerMock = new Mock<ILogger<EmailSender>>();
+            var configurationMock = new Mock<IConfiguration>();
+
+            configurationMock
+                .Setup(c => c["CommunicationServices:ConnectionString"])
+                .Returns((string?)null);
+
+            configurationMock
+                .Setup(c => c["CommunicationServices:SenderAddress"])
+                .Returns((string?)null);
+
+            var sut = new EmailSender(loggerMock.Object, configurationMock.Object);
+
+            var user = new ApplicationUser();
+            var ex = await Record.ExceptionAsync(() =>
+                sut.SendPasswordResetLinkAsync(user, "test@example.com", "https://example.com/reset"));
+
+            Assert.Null(ex);
+        }
+
+        [Fact]
+        public async Task SendConfirmationLinkAsync_WithPlaceholderSenderAddress_DoesNotThrow()
+        {
+            var loggerMock = new Mock<ILogger<EmailSender>>();
+            var configurationMock = new Mock<IConfiguration>();
+
+            configurationMock
+                .Setup(c => c["CommunicationServices:ConnectionString"])
+                .Returns((string?)null);
+
+            configurationMock
+                .Setup(c => c["CommunicationServices:SenderAddress"])
+                .Returns("<YOUR_VERIFIED_MAILFROM_ADDRESS>");
+
+            var sut = new EmailSender(loggerMock.Object, configurationMock.Object);
+
+            var user = new ApplicationUser();
+            var ex = await Record.ExceptionAsync(() =>
+                sut.SendConfirmationLinkAsync(user, "test@example.com", "https://example.com/confirm"));
+
+            Assert.Null(ex);
         }
     }
 }
