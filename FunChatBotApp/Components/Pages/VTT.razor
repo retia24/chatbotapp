@@ -7,6 +7,7 @@
 @inject TranscriptionService TranscriptionSvc
 @inject CosmosDbService CosmosSvc
 @inject AuthenticationStateProvider AuthStateProvider
+@inject IJSRuntime JS
 @rendermode InteractiveServer
 
 <PageTitle>Voice to Text (VTT)</PageTitle>
@@ -86,6 +87,12 @@
                         {
                             <button class="btn btn-sm btn-outline-info me-2" @onclick="() => CheckStatusAsync(doc)" disabled="@_isChecking">
                                 <i class="bi bi-arrow-clockwise me-1"></i>Állapot frissítése
+                            </button>
+                        }
+                        @if (doc.Status == TranscriptionState.Completed && !string.IsNullOrEmpty(doc.TranscriptText))
+                        {
+                            <button class="btn btn-sm btn-outline-primary me-2" @onclick="() => DownloadTxt(doc)">
+                                <i class="bi bi-download me-1"></i>Letöltés .txt-ként
                             </button>
                         }
                         <button class="btn btn-sm btn-outline-danger" @onclick="() => DeleteTranscriptionAsync(doc)">
@@ -181,5 +188,12 @@
         if (doc == null || string.IsNullOrEmpty(_currentUserId)) return;
         await CosmosSvc.DeleteTranscriptionAsync(doc.Id, _currentUserId);
         await LoadTranscriptionsAsync();
+    }
+
+    private async Task DownloadTxt(AudioTranscriptionDocument doc)
+    {
+        if (doc == null || string.IsNullOrEmpty(doc.TranscriptText)) return;
+        var fileName = $"{doc.OriginalFileName}_leirat.txt";
+        await JS.InvokeVoidAsync("downloadFileFromText", fileName, doc.TranscriptText);
     }
 }
