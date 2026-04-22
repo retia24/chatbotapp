@@ -1,18 +1,185 @@
 @page "/vtt"
 @using Microsoft.AspNetCore.Components.Authorization
+@using System.Security.Claims
+@using FunChatBotApp.Models
+@using FunChatBotApp.Services
 @attribute [Authorize]
+@inject TranscriptionService TranscriptionSvc
+@inject CosmosDbService CosmosSvc
+@inject AuthenticationStateProvider AuthStateProvider
 @rendermode InteractiveServer
 
 <PageTitle>Voice to Text (VTT)</PageTitle>
 
-<div class="container mt-4">
-    <h2><i class="bi bi-mic me-2"></i>Voice to Text (VTT)</h2>
+<div class="container mt-4 mb-5">
+    <h2><i class="bi bi-mic-fill me-2"></i>Voice to Text (VTT)</h2>
+    <p class="text-muted">Tölts fel egy hangfájlt, majd indítsd el a Batch Transcription API-t az átíráshoz.</p>
+
     <div class="card shadow-sm mt-3">
         <div class="card-body">
-            <p>Ide kerülhet a hangalapú szövegbeviteli funkció.</p>
+            <h5 class="card-title">Új átírás indítása</h5>
+            <InputFile class="form-control mb-3" OnChange="HandleFileSelected" accept=".mp3,.wav,.mp4, .m4a" />
+
+            <button class="btn btn-primary" disabled="@(_selectedFile == null || _isUploading)" @onclick="StartUploadingAsync">
+                @if (_isUploading)
+                {
+                    <span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+                    <span>Feltöltés és indítás folyamatban...</span>
+                }
+                else
+                {
+                    <i class="bi bi-cloud-arrow-up me-2"></i><span>Feltöltés és Indítás</span>
+                }
+            </button>
+            @if (!string.IsNullOrEmpty(_uploadError))
+            {
+                <div class="alert alert-danger mt-3 mb-0">@_uploadError</div>
+            }
         </div>
     </div>
+
+    @if (_transcriptions != null && _transcriptions.Any())
+    {
+        <h4 class="mt-5 mb-3">Korábbi és folyamatban lévő átírások</h4>
+        <div class="list-group">
+            @foreach (var doc in _transcriptions)
+            {
+                <div class="list-group-item list-group-item-action flex-column align-items-start mb-2 rounded shadow-sm">
+                    <div class="d-flex w-100 justify-content-between">
+                        <h5 class="mb-1 text-primary"><i class="bi bi-file-earmark-music me-2"></i>@doc.OriginalFileName</h5>
+                        <small class="text-muted">@doc.Timestamp.ToString("yyyy.MM.dd HH:mm")</small>
+                    </div>
+
+                    <div class="mt-2 mb-2">
+                        @if (doc.Status == TranscriptionState.Uploading)
+                        {
+                            <span class="badge bg-secondary"><i class="bi bi-cloud-upload me-1"></i>Feltöltés alatt</span>
+                        }
+                        else if (doc.Status == TranscriptionState.Processing)
+                        {
+                            <span class="badge bg-warning text-dark"><i class="bi bi-hourglass-split me-1"></i>Feldolgozás alatt...</span>
+                            <div class="progress mt-2" style="height: 5px;">
+                                <div class="progress-bar progress-bar-striped progress-bar-animated bg-warning w-100" role="progressbar"></div>
+                            </div>
+                        }
+                        else if (doc.Status == TranscriptionState.Completed)
+                        {
+                            <span class="badge bg-success"><i class="bi bi-check-circle me-1"></i>Kész</span>
+                        }
+                        else
+                        {
+                            <span class="badge bg-danger"><i class="bi bi-x-circle me-1"></i>Hiba</span>
+                            <p class="text-danger small mt-1">@doc.ErrorMessage</p>
+                        }
+                    </div>
+
+                    @if (doc.Status == TranscriptionState.Completed && !string.IsNullOrEmpty(doc.TranscriptText))
+                    {
+                        <div class="p-3 bg-light rounded mt-3 border">
+                            <strong>Eredmény:</strong>
+                            <p class="mb-0 mt-2 text-break" style="white-space: pre-wrap;">@doc.TranscriptText</p>
+                        </div>
+                    }
+
+                    <div class="mt-3">
+                        @if (doc.Status == TranscriptionState.Processing || doc.Status == TranscriptionState.Uploading)
+                        {
+                            <button class="btn btn-sm btn-outline-info me-2" @onclick="() => CheckStatusAsync(doc)" disabled="@_isChecking">
+                                <i class="bi bi-arrow-clockwise me-1"></i>Állapot frissítése
+                            </button>
+                        }
+                        <button class="btn btn-sm btn-outline-danger" @onclick="() => DeleteTranscriptionAsync(doc)">
+                            <i class="bi bi-trash me-1"></i>Törlés
+                        </button>
+                    </div>
+                </div>
+            }
+        </div>
+    }
 </div>
 
 @code {
+    private string _currentUserId = string.Empty;
+    private List<AudioTranscriptionDocument> _transcriptions = new();
+    private Microsoft.AspNetCore.Components.Forms.IBrowserFile? _selectedFile;
+    private bool _isUploading;
+    private bool _isChecking;
+    private string? _uploadError;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var userIdString = authState.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        if (!string.IsNullOrEmpty(userIdString))
+        {
+            _currentUserId = userIdString;
+            await LoadTranscriptionsAsync();
+        }
+    }
+
+    private async Task LoadTranscriptionsAsync()
+    {
+        if (string.IsNullOrEmpty(_currentUserId)) return;
+        _transcriptions = await CosmosSvc.GetTranscriptionsAsync(_currentUserId);
+    }
+
+    private void HandleFileSelected(Microsoft.AspNetCore.Components.Forms.InputFileChangeEventArgs e)
+    {
+        _selectedFile = e.File;
+        _uploadError = null;
+    }
+
+    private async Task StartUploadingAsync()
+    {
+        if (_selectedFile == null || string.IsNullOrEmpty(_currentUserId)) return;
+
+        _isUploading = true;
+        _uploadError = null;
+        StateHasChanged();
+
+        try
+        {
+            using var stream = _selectedFile.OpenReadStream(100 * 1024 * 1024); // max 100 MB
+            var newDoc = await TranscriptionSvc.StartTranscriptionAsync(stream, _selectedFile.Name, _currentUserId);
+
+            _selectedFile = null;
+            await LoadTranscriptionsAsync();
+        }
+        catch (Exception ex)
+        {
+            _uploadError = $"Hiba a feltöltés során: {ex.Message}";
+        }
+        finally
+        {
+            _isUploading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task CheckStatusAsync(AudioTranscriptionDocument doc)
+    {
+        if (doc == null || string.IsNullOrEmpty(_currentUserId)) return;
+
+        _isChecking = true;
+        try
+        {
+            await TranscriptionSvc.CheckStatusAsync(doc, _currentUserId);
+            await LoadTranscriptionsAsync();
+        }
+        catch (Exception)
+        {
+            // Ignored, user can retry
+        }
+        finally
+        {
+            _isChecking = false;
+        }
+    }
+
+    private async Task DeleteTranscriptionAsync(AudioTranscriptionDocument doc)
+    {
+        if (doc == null || string.IsNullOrEmpty(_currentUserId)) return;
+        await CosmosSvc.DeleteTranscriptionAsync(doc.Id, _currentUserId);
+        await LoadTranscriptionsAsync();
+    }
 }

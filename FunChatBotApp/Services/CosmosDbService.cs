@@ -277,4 +277,42 @@ public class CosmosDbService
         }
         return results;
     }
+
+    // ==========================================
+    // Voice to Text - műveletek
+    // ==========================================
+
+    public async Task<List<AudioTranscriptionDocument>> GetTranscriptionsAsync(string userId)
+    {
+        var iterator = _container.GetItemLinqQueryable<AudioTranscriptionDocument>(
+            requestOptions: new QueryRequestOptions { PartitionKey = new PartitionKey(userId) })
+            .Where(x => x.Type == "AudioTranscription" && x.UserId == userId)
+            .OrderByDescending(x => x.Timestamp)
+            .ToFeedIterator();
+
+        var results = new List<AudioTranscriptionDocument>();
+        while (iterator.HasMoreResults)
+        {
+            var response = await iterator.ReadNextAsync();
+            results.AddRange(response);
+        }
+        return results;
+    }
+
+    public async Task UpsertTranscriptionAsync(AudioTranscriptionDocument doc, string userId)
+    {
+        doc.Type = "AudioTranscription";
+        doc.UserId = userId;
+        if (string.IsNullOrEmpty(doc.ProjectId))
+        {
+            doc.ProjectId = doc.Id;
+        }
+
+        await _container.UpsertItemAsync(doc, new PartitionKey(userId));
+    }
+
+    public async Task DeleteTranscriptionAsync(string id, string userId)
+    {
+        await _container.DeleteItemAsync<AudioTranscriptionDocument>(id, new PartitionKey(userId));
+    }
 }

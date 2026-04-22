@@ -67,6 +67,8 @@ namespace FunChatBotApp
             builder.Services.AddScoped<ChatService>();
             builder.Services.AddScoped<ThemeService>();
 
+            builder.Services.AddHttpClient<TranscriptionService>();
+
             // Semantic Kernel integráció
             builder.Services.AddKernel()
                 .AddAzureOpenAIChatCompletion(
