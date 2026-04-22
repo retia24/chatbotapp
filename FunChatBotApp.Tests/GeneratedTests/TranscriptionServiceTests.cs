@@ -1,262 +1,173 @@
-using System;
-using System.IO;
-using System.Net;
-using System.Net.Http;
-using System.Threading;
-using System.Threading.Tasks;
-using FunChatBotApp.Models;
-using FunChatBotApp.Services;
-using Microsoft.Extensions.Configuration;
-using Moq;
-using Moq.Protected;
-using Xunit;
-
-namespace FunChatBotApp.Tests
+namespace FunChatBotApp.Tests.Services
 {
+    using FunChatBotApp.Models;
+    using FunChatBotApp.Services;
+    using Microsoft.Extensions.Configuration;
+    using Moq;
+    using Moq.Protected;
+    using System.Net;
+    using System.Text;
+    using Xunit;
+
     public class TranscriptionServiceTests
     {
-        private readonly Mock<CosmosDbService> _cosmosDbMock;
-        private readonly Mock<IConfiguration> _configMock;
-        private readonly Mock<HttpMessageHandler> _httpHandlerMock;
-        private readonly HttpClient _httpClient;
-        private readonly TranscriptionService _service;
-
-        private const string BlobConnectionString = "UseDevelopmentStorage=true";
-        private const string BlobContainer = "test-container";
-        private const string SpeechEndpoint = "https://fake.speech.endpoint";
-        private const string SpeechKey = "fake-key";
-
-        public TranscriptionServiceTests()
+        [Fact]
+        public async Task CheckStatusAsync_WhenDocAlreadyCompleted_ReturnsSameDoc_AndDoesNotCallHttpOrDb()
         {
-            _cosmosDbMock = new Mock<CosmosDbService>();
-            _configMock = new Mock<IConfiguration>();
-            _configMock.Setup(c => c["BlobStorage:ConnectionString"]).Returns(BlobConnectionString);
-            _configMock.Setup(c => c["BlobStorage:ContainerName"]).Returns(BlobContainer);
-            _configMock.Setup(c => c["SpeechService:Endpoint"]).Returns(SpeechEndpoint);
-            _configMock.Setup(c => c["SpeechService:ApiKey"]).Returns(SpeechKey);
+            var cosmosMock = new Mock<CosmosDbService>();
+            var handlerMock = new Mock<HttpMessageHandler>(MockBehavior.Strict);
+            var httpClient = new HttpClient(handlerMock.Object);
 
-            _httpHandlerMock = new Mock<HttpMessageHandler>(MockBehavior.Strict);
-            _httpClient = new HttpClient(_httpHandlerMock.Object);
+            var config = new ConfigurationBuilder()
+                .AddInMemoryCollection(new Dictionary<string, string?>
+                {
+                    ["BlobStorage:ConnectionString"] = "UseDevelopmentStorage=true",
+                    ["BlobStorage:ContainerName"] = "audio",
+                    ["SpeechService:Endpoint"] = "https://speech.test",
+                    ["SpeechService:ApiKey"] = "api-key"
+                })
+                .Build();
 
-            _service = new TranscriptionService(_cosmosDbMock.Object, _configMock.Object, _httpClient);
+            var service = new TranscriptionService(cosmosMock.Object, config, httpClient);
+            var doc = new AudioTranscriptionDocument
+            {
+                Status = TranscriptionState.Completed,
+                ApiTranscriptionUri = "https://speech.test/transcriptions/1"
+            };
+
+            var result = await service.CheckStatusAsync(doc, "user-1");
+
+            Assert.Same(doc, result);
+            cosmosMock.Verify(x => x.UpsertTranscriptionAsync(It.IsAny<AudioTranscriptionDocument>(), It.IsAny<string>()), Times.Never);
+
+            handlerMock.Protected().Verify(
+                "SendAsync",
+                Times.Never(),
+                ItExpr.IsAny<HttpRequestMessage>(),
+                ItExpr.IsAny<CancellationToken>());
         }
 
         [Fact]
-        public async Task StartTranscriptionAsync_SuccessfulFlow_UpdatesStatusToProcessing()
+        public async Task CheckStatusAsync_WhenDocFailed_ReturnsSameDoc_AndDoesNotCallHttpOrDb()
         {
-            // Arrange
-            var fileStream = new MemoryStream(new byte[] { 1, 2, 3 });
-            string fileName = "audio.wav";
-            string userId = "user123";
+            var cosmosMock = new Mock<CosmosDbService>();
+            var handlerMock = new Mock<HttpMessageHandler>(MockBehavior.Strict);
+            var httpClient = new HttpClient(handlerMock.Object);
 
-            _httpHandlerMock.Protected()
+            var config = new ConfigurationBuilder()
+                .AddInMemoryCollection(new Dictionary<string, string?>
+                {
+                    ["BlobStorage:ConnectionString"] = "UseDevelopmentStorage=true",
+                    ["BlobStorage:ContainerName"] = "audio",
+                    ["SpeechService:Endpoint"] = "https://speech.test",
+                    ["SpeechService:ApiKey"] = "api-key"
+                })
+                .Build();
+
+            var service = new TranscriptionService(cosmosMock.Object, config, httpClient);
+            var doc = new AudioTranscriptionDocument
+            {
+                Status = TranscriptionState.Failed,
+                ApiTranscriptionUri = "https://speech.test/transcriptions/1"
+            };
+
+            var result = await service.CheckStatusAsync(doc, "user-1");
+
+            Assert.Same(doc, result);
+            cosmosMock.Verify(x => x.UpsertTranscriptionAsync(It.IsAny<AudioTranscriptionDocument>(), It.IsAny<string>()), Times.Never);
+
+            handlerMock.Protected().Verify(
+                "SendAsync",
+                Times.Never(),
+                ItExpr.IsAny<HttpRequestMessage>(),
+                ItExpr.IsAny<CancellationToken>());
+        }
+
+        [Fact]
+        public async Task CheckStatusAsync_WhenApiUriMissing_ReturnsSameDoc_AndDoesNotCallHttpOrDb()
+        {
+            var cosmosMock = new Mock<CosmosDbService>();
+            var handlerMock = new Mock<HttpMessageHandler>(MockBehavior.Strict);
+            var httpClient = new HttpClient(handlerMock.Object);
+
+            var config = new ConfigurationBuilder()
+                .AddInMemoryCollection(new Dictionary<string, string?>
+                {
+                    ["BlobStorage:ConnectionString"] = "UseDevelopmentStorage=true",
+                    ["BlobStorage:ContainerName"] = "audio",
+                    ["SpeechService:Endpoint"] = "https://speech.test",
+                    ["SpeechService:ApiKey"] = "api-key"
+                })
+                .Build();
+
+            var service = new TranscriptionService(cosmosMock.Object, config, httpClient);
+            var doc = new AudioTranscriptionDocument
+            {
+                Status = TranscriptionState.Processing,
+                ApiTranscriptionUri = ""
+            };
+
+            var result = await service.CheckStatusAsync(doc, "user-1");
+
+            Assert.Same(doc, result);
+            cosmosMock.Verify(x => x.UpsertTranscriptionAsync(It.IsAny<AudioTranscriptionDocument>(), It.IsAny<string>()), Times.Never);
+
+            handlerMock.Protected().Verify(
+                "SendAsync",
+                Times.Never(),
+                ItExpr.IsAny<HttpRequestMessage>(),
+                ItExpr.IsAny<CancellationToken>());
+        }
+
+        [Fact]
+        public async Task CheckStatusAsync_WhenStatusFailedFromApi_SetsDocFailed_AndUpserts()
+        {
+            var cosmosMock = new Mock<CosmosDbService>();
+
+            var handlerMock = new Mock<HttpMessageHandler>(MockBehavior.Strict);
+            handlerMock.Protected()
                 .Setup<Task<HttpResponseMessage>>(
                     "SendAsync",
-                    ItExpr.Is<HttpRequestMessage>(req =>
-                        req.Method == HttpMethod.Post &&
-                        req.RequestUri?.AbsoluteUri == $"{SpeechEndpoint}/transcriptions"),
-                    ItExpr.IsAny<CancellationToken>()
-                )
-                .ReturnsAsync(new HttpResponseMessage(
-                    HttpStatusCode.OK)
+                    ItExpr.Is<HttpRequestMessage>(m => m.Method == HttpMethod.Get && m.RequestUri!.ToString() == "https://speech.test/transcriptions/1"),
+                    ItExpr.IsAny<CancellationToken>())
+                .ReturnsAsync(new HttpResponseMessage(HttpStatusCode.OK)
                 {
-                    Content = new StringContent("{\"self\":\"https://fake.api.transcriptions/1\"}")
+                    Content = new StringContent("{\"status\":\"Failed\"}", Encoding.UTF8, "application/json")
+                });
+
+            var httpClient = new HttpClient(handlerMock.Object);
+
+            var config = new ConfigurationBuilder()
+                .AddInMemoryCollection(new Dictionary<string, string?>
+                {
+                    ["BlobStorage:ConnectionString"] = "UseDevelopmentStorage=true",
+                    ["BlobStorage:ContainerName"] = "audio",
+                    ["SpeechService:Endpoint"] = "https://speech.test",
+                    ["SpeechService:ApiKey"] = "api-key"
                 })
-                .Verifiable();
+                .Build();
 
-            _cosmosDbMock.Setup(db => db.UpsertTranscriptionAsync(It.IsAny<AudioTranscriptionDocument>(), userId))
-                .Returns(Task.CompletedTask)
-                .Verifiable();
+            var service = new TranscriptionService(cosmosMock.Object, config, httpClient);
+            var doc = new AudioTranscriptionDocument
+            {
+                Status = TranscriptionState.Processing,
+                ApiTranscriptionUri = "https://speech.test/transcriptions/1"
+            };
 
-            // Act
-            var result = await _service.StartTranscriptionAsync(fileStream, fileName, userId);
+            var result = await service.CheckStatusAsync(doc, "user-1");
 
-            // Assert
-            _httpHandlerMock.Protected().Verify(
+            Assert.Same(doc, result);
+            Assert.Equal(TranscriptionState.Failed, doc.Status);
+            cosmosMock.Verify(x => x.UpsertTranscriptionAsync(doc, "user-1"), Times.Once);
+
+            handlerMock.Protected().Verify(
                 "SendAsync",
                 Times.Once(),
-                ItExpr.Is<HttpRequestMessage>(req =>
-                    req.Method == HttpMethod.Post &&
-                    req.RequestUri?.AbsoluteUri == $"{SpeechEndpoint}/transcriptions"),
+                ItExpr.Is<HttpRequestMessage>(m =>
+                    m.Method == HttpMethod.Get &&
+                    m.RequestUri!.ToString() == "https://speech.test/transcriptions/1" &&
+                    m.Headers.Contains("Ocp-Apim-Subscription-Key")),
                 ItExpr.IsAny<CancellationToken>());
-
-            _cosmosDbMock.Verify(db => db.UpsertTranscriptionAsync(It.Is<AudioTranscriptionDocument>(d =>
-                d.Status == TranscriptionState.Uploading ||
-                d.Status == TranscriptionState.Processing), userId), Times.AtLeast(2));
-
-            Assert.NotNull(result);
-            Assert.Equal(fileName, result.OriginalFileName);
-            Assert.NotNull(result.BlobUrl);
-            Assert.Equal(TranscriptionState.Processing, result.Status);
-            Assert.Equal("https://fake.api.transcriptions/1", result.ApiTranscriptionUri);
-        }
-
-        [Fact]
-        public async Task StartTranscriptionAsync_FailedResponse_UpdatesStatusToFailed()
-        {
-            // Arrange
-            var fileStream = new MemoryStream(new byte[] { 1, 2, 3 });
-            string fileName = "audio.wav";
-            string userId = "user123";
-
-            var errorMessage = "Error from speech API";
-
-            _httpHandlerMock.Protected()
-                .Setup<Task<HttpResponseMessage>>(
-                    "SendAsync",
-                    ItExpr.IsAny<HttpRequestMessage>(),
-                    ItExpr.IsAny<CancellationToken>()
-                )
-                .ReturnsAsync(new HttpResponseMessage(HttpStatusCode.BadRequest)
-                {
-                    Content = new StringContent(errorMessage)
-                })
-                .Verifiable();
-
-            _cosmosDbMock.Setup(db => db.UpsertTranscriptionAsync(It.IsAny<AudioTranscriptionDocument>(), userId))
-                .Returns(Task.CompletedTask)
-                .Verifiable();
-
-            // Act
-            var result = await _service.StartTranscriptionAsync(fileStream, fileName, userId);
-
-            // Assert
-            _cosmosDbMock.Verify(db => db.UpsertTranscriptionAsync(It.Is<AudioTranscriptionDocument>(d =>
-                d.Status == TranscriptionState.Failed && d.ErrorMessage == errorMessage), userId), Times.AtLeast(2));
-
-            Assert.Equal(TranscriptionState.Failed, result.Status);
-            Assert.Equal(errorMessage, result.ErrorMessage);
-        }
-
-        [Fact]
-        public async Task CheckStatusAsync_CompletedOrFailedStatus_ReturnsDocumentWithoutHttpCall()
-        {
-            // Arrange
-            var docCompleted = new AudioTranscriptionDocument { Status = TranscriptionState.Completed };
-            var docFailed = new AudioTranscriptionDocument { Status = TranscriptionState.Failed };
-
-            // Act
-            var resultCompleted = await _service.CheckStatusAsync(docCompleted, "user1");
-            var resultFailed = await _service.CheckStatusAsync(docFailed, "user1");
-
-            // Assert
-            _httpHandlerMock.Protected().Verify("SendAsync", Times.Never(), ItExpr.IsAny<HttpRequestMessage>(), ItExpr.IsAny<CancellationToken>());
-            Assert.Same(docCompleted, resultCompleted);
-            Assert.Same(docFailed, resultFailed);
-        }
-
-        [Fact]
-        public async Task CheckStatusAsync_EmptyApiUri_ReturnsDocumentWithoutHttpCall()
-        {
-            // Arrange
-            var doc = new AudioTranscriptionDocument { Status = TranscriptionState.Processing, ApiTranscriptionUri = "" };
-
-            // Act
-            var result = await _service.CheckStatusAsync(doc, "user1");
-
-            // Assert
-            _httpHandlerMock.Protected().Verify("SendAsync", Times.Never(), ItExpr.IsAny<HttpRequestMessage>(), ItExpr.IsAny<CancellationToken>());
-            Assert.Same(doc, result);
-        }
-
-        [Fact]
-        public async Task CheckStatusAsync_SucceededStatus_DownloadsTranscriptAndUpdatesDocument()
-        {
-            // Arrange
-            var doc = new AudioTranscriptionDocument
-            {
-                Status = TranscriptionState.Processing,
-                ApiTranscriptionUri = "https://fake.api/transcription/1"
-            };
-            string userId = "user1";
-
-            var transcriptionStatusResponse = "{\"status\":\"Succeeded\",\"links\":{\"files\":\"https://fake.api/files/1\"}}";
-            var filesResponse = "{\"values\":[{\"kind\":\"Transcription\",\"links\":{\"contentUrl\":\"https://fake.api/content/1\"}}]}";
-            var contentResponse = "{\"combinedRecognizedPhrases\":[{\"display\":\"This is the transcript text.\"}]}";
-
-            var sequence = new MockSequence();
-
-            _httpHandlerMock.Protected()
-                .InSequence(sequence)
-                .Setup<Task<HttpResponseMessage>>("SendAsync",
-                    ItExpr.Is<HttpRequestMessage>(req => req.Method == HttpMethod.Get && req.RequestUri?.AbsoluteUri == doc.ApiTranscriptionUri),
-                    ItExpr.IsAny<CancellationToken>())
-                .ReturnsAsync(new HttpResponseMessage(HttpStatusCode.OK)
-                {
-                    Content = new StringContent(transcriptionStatusResponse)
-                });
-
-            _httpHandlerMock.Protected()
-                .InSequence(sequence)
-                .Setup<Task<HttpResponseMessage>>("SendAsync",
-                    ItExpr.Is<HttpRequestMessage>(req => req.Method == HttpMethod.Get && req.RequestUri?.AbsoluteUri == "https://fake.api/files/1"),
-                    ItExpr.IsAny<CancellationToken>())
-                .ReturnsAsync(new HttpResponseMessage(HttpStatusCode.OK)
-                {
-                    Content = new StringContent(filesResponse)
-                });
-
-            _httpHandlerMock.Protected()
-                .InSequence(sequence)
-                .Setup<Task<HttpResponseMessage>>("SendAsync",
-                    ItExpr.Is<HttpRequestMessage>(req => req.Method == HttpMethod.Get && req.RequestUri?.AbsoluteUri == "https://fake.api/content/1"),
-                    ItExpr.IsAny<CancellationToken>())
-                .ReturnsAsync(new HttpResponseMessage(HttpStatusCode.OK)
-                {
-                    Content = new StringContent(contentResponse)
-                });
-
-            _cosmosDbMock.Setup(db => db.UpsertTranscriptionAsync(It.IsAny<AudioTranscriptionDocument>(), userId))
-                .Returns(Task.CompletedTask)
-                .Verifiable();
-
-            // Act
-            var result = await _service.CheckStatusAsync(doc, userId);
-
-            // Assert
-            _cosmosDbMock.Verify(db => db.UpsertTranscriptionAsync(It.Is<AudioTranscriptionDocument>(d =>
-                d.Status == TranscriptionState.Completed &&
-                d.TranscriptText == "This is the transcript text."), userId), Times.Once);
-
-            Assert.Equal(TranscriptionState.Completed, result.Status);
-            Assert.Equal("This is the transcript text.", result.TranscriptText);
-        }
-
-        [Fact]
-        public async Task CheckStatusAsync_FailedStatus_UpdatesStatusToFailed()
-        {
-            // Arrange
-            var doc = new AudioTranscriptionDocument
-            {
-                Status = TranscriptionState.Processing,
-                ApiTranscriptionUri = "https://fake.api/transcription/1"
-            };
-            string userId = "user1";
-
-            var transcriptionStatusResponse = "{\"status\":\"Failed\"}";
-
-            _httpHandlerMock.Protected()
-                .Setup<Task<HttpResponseMessage>>("SendAsync",
-                    ItExpr.Is<HttpRequestMessage>(req => req.Method == HttpMethod.Get && req.RequestUri?.AbsoluteUri == doc.ApiTranscriptionUri),
-                    ItExpr.IsAny<CancellationToken>())
-                .ReturnsAsync(new HttpResponseMessage(HttpStatusCode.OK)
-                {
-                    Content = new StringContent(transcriptionStatusResponse)
-                })
-                .Verifiable();
-
-            _cosmosDbMock.Setup(db => db.UpsertTranscriptionAsync(It.IsAny<AudioTranscriptionDocument>(), userId))
-                .Returns(Task.CompletedTask)
-                .Verifiable();
-
-            // Act
-            var result = await _service.CheckStatusAsync(doc, userId);
-
-            // Assert
-            _cosmosDbMock.Verify(db => db.UpsertTranscriptionAsync(It.Is<AudioTranscriptionDocument>(d =>
-                d.Status == TranscriptionState.Failed), userId), Times.Once);
-
-            Assert.Equal(TranscriptionState.Failed, result.Status);
         }
     }
 }

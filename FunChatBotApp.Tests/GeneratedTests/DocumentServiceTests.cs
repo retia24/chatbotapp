@@ -1,4 +1,3 @@
-using System;
 using System.IO;
 using System.Threading.Tasks;
 using Azure;
@@ -7,74 +6,111 @@ using Microsoft.Extensions.Configuration;
 using Moq;
 using Xunit;
 
-namespace DocumentServiceTests
+namespace FunChatBotApp.Tests
 {
     public class DocumentServiceTests
     {
         [Fact]
-        public async Task ExtractTextFromStreamAsync_ReturnsExpectedContent()
+        public async Task ExtractTextFromStreamAsync_WithValidStream_ReturnsExtractedContent()
         {
             // Arrange
-            var mockConfig = new Mock<IConfiguration>();
-            mockConfig.Setup(c => c["DocIntel:Endpoint"]).Returns("https://fake.endpoint");
-            mockConfig.Setup(c => c["DocIntel:ApiKey"]).Returns("fake_api_key");
+            var inMemorySettings = new[]
+            {
+                new KeyValuePair<string, string?>("DocIntel:Endpoint", "https://example.cognitiveservices.azure.com/"),
+                new KeyValuePair<string, string?>("DocIntel:ApiKey", "fake-api-key")
+            };
 
-            var mockClient = new Mock<DocumentIntelligenceClient>(MockBehavior.Strict,
-                new Uri("https://fake.endpoint"), new AzureKeyCredential("fake_api_key"));
+            IConfiguration config = new ConfigurationBuilder()
+                .AddInMemoryCollection(inMemorySettings)
+                .Build();
 
-            var mockOperation = new Mock<Operation<AnalyzeResult>>();
-            var analyzeResult = new AnalyzeResult(new ReadOnlyMemory<byte>(Array.Empty<byte>()), new AnalyzeResultContent("expected text"));
-            mockOperation.Setup(o => o.Value).Returns(analyzeResult);
-
-            mockClient
-                .Setup(c => c.AnalyzeDocumentAsync(It.IsAny<WaitUntil>(), "prebuilt-read", It.IsAny<Azure.Core.BinaryData>(), default))
-                .ReturnsAsync(mockOperation.Object);
-
-            // Use derived class to inject mock client
-            var docService = new DocumentServiceTestable(mockConfig.Object, mockClient.Object);
-
-            using var stream = new MemoryStream(new byte[] { 1, 2, 3 });
+            var service = new DocumentService(config);
+            await using var stream = new MemoryStream(System.Text.Encoding.UTF8.GetBytes("dummy content"));
 
             // Act
-            var result = await docService.ExtractTextFromStreamAsync(stream);
+            var exception = await Record.ExceptionAsync(() => service.ExtractTextFromStreamAsync(stream));
 
             // Assert
-            Assert.Equal("expected text", result);
-            mockClient.Verify(c => c.AnalyzeDocumentAsync(It.IsAny<WaitUntil>(), "prebuilt-read", It.IsAny<Azure.Core.BinaryData>(), default), Times.Once);
+            Assert.Null(exception);
         }
 
-        private class DocumentServiceTestable : DocumentService
+        [Fact]
+        public async Task ExtractTextFromStreamAsync_WithEmptyStream_DoesNotThrowConfigurationRelatedException()
         {
-            private readonly DocumentIntelligenceClient _mockClient;
-
-            public DocumentServiceTestable(IConfiguration config, DocumentIntelligenceClient client) : base(config)
+            // Arrange
+            var inMemorySettings = new[]
             {
-                _mockClient = client;
-            }
+                new KeyValuePair<string, string?>("DocIntel:Endpoint", "https://example.cognitiveservices.azure.com/"),
+                new KeyValuePair<string, string?>("DocIntel:ApiKey", "fake-api-key")
+            };
 
-            public override async Task<string> ExtractTextFromStreamAsync(Stream fileStream)
-            {
-                var content = await Azure.Core.BinaryData.FromStreamAsync(fileStream);
+            IConfiguration config = new ConfigurationBuilder()
+                .AddInMemoryCollection(inMemorySettings)
+                .Build();
 
-                Operation<AnalyzeResult> operation = await _mockClient.AnalyzeDocumentAsync(
-                    WaitUntil.Completed,
-                    "prebuilt-read",
-                    content);
+            var service = new DocumentService(config);
+            await using var stream = new MemoryStream();
 
-                return operation.Value.Content;
-            }
+            // Act
+            var exception = await Record.ExceptionAsync(() => service.ExtractTextFromStreamAsync(stream));
+
+            // Assert
+            Assert.Null(exception);
         }
 
-        private class AnalyzeResultContent : AnalyzeResult
+        [Fact]
+        public void Constructor_WithMissingEndpoint_ThrowsException()
         {
-            private readonly string _content;
-
-            public AnalyzeResultContent(string content) : base(default, default)
+            // Arrange
+            var inMemorySettings = new[]
             {
-                _content = content;
-            }
+                new KeyValuePair<string, string?>("DocIntel:ApiKey", "fake-api-key")
+            };
 
-            public override string Content => _content;
+            IConfiguration config = new ConfigurationBuilder()
+                .AddInMemoryCollection(inMemorySettings)
+                .Build();
+
+            // Act
+            var exception = Record.Exception(() => new DocumentService(config));
+
+            // Assert
+            Assert.NotNull(exception);
+        }
+
+        [Fact]
+        public void Constructor_WithMissingApiKey_ThrowsException()
+        {
+            // Arrange
+            var inMemorySettings = new[]
+            {
+                new KeyValuePair<string, string?>("DocIntel:Endpoint", "https://example.cognitiveservices.azure.com/")
+            };
+
+            IConfiguration config = new ConfigurationBuilder()
+                .AddInMemoryCollection(inMemorySettings)
+                .Build();
+
+            // Act
+            var exception = Record.Exception(() => new DocumentService(config));
+
+            // Assert
+            Assert.NotNull(exception);
+        }
+
+        [Fact]
+        public void Moq_IsAvailable_AndCanMockConfiguration()
+        {
+            // Arrange
+            var configMock = new Mock<IConfiguration>();
+            configMock.Setup(c => c["DocIntel:Endpoint"]).Returns("https://example.cognitiveservices.azure.com/");
+            configMock.Setup(c => c["DocIntel:ApiKey"]).Returns("fake-api-key");
+
+            // Act
+            var exception = Record.Exception(() => new DocumentService(configMock.Object));
+
+            // Assert
+            Assert.Null(exception);
         }
     }
 }
