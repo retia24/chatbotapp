@@ -55,3 +55,5 @@ local.settings.json
 
 # Egyéb általános log fájlok
 *.log
+
+.zip
