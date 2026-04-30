@@ -11,6 +11,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Configuration;
+using Microsoft.ML.Tokenizers;
 
 namespace FunChatBotApp.Services;
 
@@ -27,6 +28,10 @@ public class ChatService
     // Beállítások a memóriához
     private const int SlidingWindowSize = 10; // Csak az utolsó N üzenetet küldjük a fő chatnél
     private const int SummarizationTrigger = 6; // Minden N-edik üzenetváltás után frissítjük a közös memóriát
+
+    // Beállítások a daraboláshoz (chunking)
+    private readonly bool _enableChunking = true;
+    private readonly int _chunkTokenLimit = 250;
 
     public ChatService(IConfiguration config, CosmosDbService cosmosDb, Kernel kernel, ThemeService themeService, TextAnalyticsService textAnalyticsService)
     {
@@ -58,6 +63,19 @@ public class ChatService
     public async Task<string> ProcessProjectMessageAsync(Project project, ChatSession chat, List<Models.ChatMessage> currentMessages, string userMessage, string userId, bool includeDocumentContext = false, int? maxSentences = null)
     {
         string safeUserMessage = await _textAnalyticsService.RedactPiiAsync(userMessage);
+
+        string factsFromLongUserMessage = string.Empty;
+
+        if (_enableChunking && safeUserMessage.Length > _chunkTokenLimit * 4) // simple heuristic
+        {
+            factsFromLongUserMessage = await ExtractFactsFromLargeDataAsync(safeUserMessage, "Foglald össze a lényeget.");
+            
+            // Ha a felhasználó üzenete nagyon hosszú, nem is az eredetit mentjük el (mert szétfeszíti a memóriát), 
+            // hanem csak a sűrített lényeget. Vagy lementhetjük az eredetit, de a kernelnek csak a tényeket adjuk át.
+            // Döntés: mentjük az eredeti *hosszút* a history-ba a UI miatt, de a Kernel promptba trükközünk.
+            // Emiatt az adatbázisba bekerül a hosszú eredeti.
+        }
+
         // 1. Felhasználói üzenet rögzítése és mentése a CosmosDB-be
         var userMsg = new Models.ChatMessage 
         { 
@@ -92,15 +110,30 @@ public class ChatService
             chatHistory.AddSystemMessage($"Project Context/Memory: {project.JointSummary}");
         }
 
+        // --- ÚJ: Hosszú felhasználói üzenet kivonata ---
+        if (!string.IsNullOrEmpty(factsFromLongUserMessage))
+        {
+            chatHistory.AddSystemMessage($"A felhasználó friss, de nagyon hosszú üzenetének kivonata a kontextushoz: {factsFromLongUserMessage}");
+        }
+
         // Külön tárolt dokumentum beemelése szükség esetén
         if (includeDocumentContext && !string.IsNullOrEmpty(chat.ActiveDocumentText))
         {
-            var textToInject = chat.ActiveDocumentText;
-            if (textToInject.Length > 30000)
+            if (_enableChunking)
             {
-                textToInject = textToInject.Substring(0, 30000) + "\n... [TARTALOM LEVÁGVA A HOSSZ MIATT]";
+                // Intelligens darabolás és információ-extrakció a Semantic Kernel előtt
+                string extractedFacts = await ExtractFactsFromLargeDataAsync(chat.ActiveDocumentText, userMessage);
+                chatHistory.AddSystemMessage($"Reference Document (Extracted Facts):\n<document>\n{extractedFacts}\n</document>");
             }
-            chatHistory.AddSystemMessage($"Reference Document:\n<document>\n{textToInject}\n</document>");
+            else
+            {
+                var textToInject = chat.ActiveDocumentText;
+                if (textToInject.Length > 30000)
+                {
+                    textToInject = textToInject.Substring(0, 30000) + "\n... [TARTALOM LEVÁGVA A HOSSZ MIATT]";
+                }
+                chatHistory.AddSystemMessage($"Reference Document:\n<document>\n{textToInject}\n</document>");
+            }
         }
 
         if (maxSentences.HasValue && maxSentences.Value > 0)
@@ -126,7 +159,19 @@ public class ChatService
         foreach (var msg in allProjectMessages)
         {
             if (msg.Role == "user")
-                chatHistory.AddUserMessage(msg.Content);
+            {
+                // Ha ez épp a mostani hosszú üzenet, a kernel számára "túlcsordulna", ha az eredetit tesszük be.
+                // De mivel a userMsg a legutolsó, és az előbb betettük a system promptba a kivonatát, ide elég egy placeholder,
+                // vagy betehetjük a kivonatot User üzenetként is.
+                if (_enableChunking && msg.Id == userMsg.Id && msg.Content.Length > _chunkTokenLimit * 4)
+                {
+                     chatHistory.AddUserMessage("A kérdésem részleteit a System prompt tartalmazza.");
+                }
+                else
+                {
+                     chatHistory.AddUserMessage(msg.Content);
+                }
+            }
             else if (msg.Role == "assistant")
                 chatHistory.AddAssistantMessage(msg.Content);
             else
@@ -176,6 +221,13 @@ public class ChatService
     public async Task<string> ProcessStandaloneMessageAsync(ChatSession chat, List<Models.ChatMessage> currentMessages, string userMessage, string userId, bool includeDocumentContext = false, int? maxSentences = null)
     {
         string safeUserMessage = await _textAnalyticsService.RedactPiiAsync(userMessage);
+
+        string factsFromLongUserMessage = string.Empty;
+        if (_enableChunking && safeUserMessage.Length > _chunkTokenLimit * 4)
+        {
+            factsFromLongUserMessage = await ExtractFactsFromLargeDataAsync(safeUserMessage, "Fogldal össze a lényeget.");
+        }
+
         // 1. User üzenet
         var userMsg = new Models.ChatMessage
         { 
@@ -204,15 +256,30 @@ public class ChatService
         var chatCompletion = chatKernel.GetRequiredService<Microsoft.SemanticKernel.ChatCompletion.IChatCompletionService>();
         var chatHistory = new Microsoft.SemanticKernel.ChatCompletion.ChatHistory();
 
+
+        if (!string.IsNullOrEmpty(factsFromLongUserMessage))
+        {
+            chatHistory.AddSystemMessage($"A felhasználó friss, de nagyon hosszú üzenetének kivonata a kontextushoz: {factsFromLongUserMessage}");
+        }
+
+
         // Külön tárolt dokumentum beemelése szükség esetén
         if (includeDocumentContext && !string.IsNullOrEmpty(chat.ActiveDocumentText))
         {
-            var textToInject = chat.ActiveDocumentText;
-            if (textToInject.Length > 30000)
+            if (_enableChunking)
             {
-                textToInject = textToInject.Substring(0, 30000) + "\n... [TARTALOM LEVÁGVA A HOSSZ MIATT]";
+                string extractedFacts = await ExtractFactsFromLargeDataAsync(chat.ActiveDocumentText, userMessage);
+                chatHistory.AddSystemMessage($"Reference Document (Extracted Facts):\n<document>\n{extractedFacts}\n</document>");
             }
-            chatHistory.AddSystemMessage($"Reference Document:\n<document>\n{textToInject}\n</document>");
+            else
+            {
+                var textToInject = chat.ActiveDocumentText;
+                if (textToInject.Length > 30000)
+                {
+                    textToInject = textToInject.Substring(0, 30000) + "\n... [TARTALOM LEVÁGVA A HOSSZ MIATT]";
+                }
+                chatHistory.AddSystemMessage($"Reference Document:\n<document>\n{textToInject}\n</document>");
+            }
         }
 
         if (maxSentences.HasValue && maxSentences.Value > 0)
@@ -227,7 +294,16 @@ public class ChatService
         foreach (var msg in recentMessages)
         {
             if (msg.Role == "user")
-                chatHistory.AddUserMessage(msg.Content);
+            {
+                 if (_enableChunking && msg.Id == userMsg.Id && msg.Content.Length > _chunkTokenLimit * 4)
+                 {
+                     chatHistory.AddUserMessage("A kérdésem részleteit a System prompt tartalmazza.");
+                 }
+                 else
+                 {
+                     chatHistory.AddUserMessage(msg.Content);
+                 }
+            }
             else if (msg.Role == "assistant")
                 chatHistory.AddAssistantMessage(msg.Content);
             else
@@ -394,5 +470,108 @@ Térj ki arra, hogy mik az érdeklődési körei, valószínűleg mivel foglalko
         await _cosmosDb.UpsertUserProfileAsync(userProfile, userId);
 
         return generatedSummary;
+    }
+
+    /// <summary>
+    /// Segédmetódus a szöveg Microsoft.ML.Tokenizers alapú biztonságos darabolásához.
+    /// Úgy vágja a szöveget, hogy a szavakat ne törje ketté, de szigorúan a tokenlimit alatt maradjon.
+    /// </summary>
+    private List<string> ChunkTextByTokens(string text, Tokenizer tokenizer, int maxTokens)
+    {
+        var chunks = new List<string>();
+        if (string.IsNullOrWhiteSpace(text)) return chunks;
+
+        // A szöveget felbontjuk szavakra/kisebb egységekre (szóközökkel)
+        var words = text.Split(' ', StringSplitOptions.None);
+        
+        var currentChunk = new System.Text.StringBuilder();
+        int currentTokenCount = 0;
+
+        foreach (var word in words)
+        {
+            // Visszatesszük a szóközt a darabhoz (kivéve a legelején)
+            string wordWithSpace = currentChunk.Length > 0 ? " " + word : word;
+            int tokenCount = tokenizer.CountTokens(wordWithSpace);
+
+            // Ha egyetlen szó/rész önmagában nagyobb lenne a limitnél (pl. base64 kód, hosszú url),
+            // akkor sincs más választásunk, mint hozzáadni, vagy durván elvágni. 
+            // Itt a biztonság kedvéért új darabot kezdünk, ha már van valamennyi adatunk.
+            if (currentTokenCount + tokenCount > maxTokens)
+            {
+                if (currentChunk.Length > 0)
+                {
+                    chunks.Add(currentChunk.ToString());
+                    currentChunk.Clear();
+                    currentTokenCount = 0;
+                    
+                    // Most már szóköz nélkül kezdjük az új darabot
+                    wordWithSpace = word;
+                    tokenCount = tokenizer.CountTokens(wordWithSpace);
+                }
+            }
+
+            currentChunk.Append(wordWithSpace);
+            currentTokenCount += tokenCount;
+        }
+
+        if (currentChunk.Length > 0)
+        {
+            chunks.Add(currentChunk.ToString());
+        }
+
+        return chunks;
+    }
+
+    /// <summary>
+    /// Intelligens információ-kinyerés hosszú szövegekből darabolással.
+    /// Csak a tényeket adja vissza, hogy azt a Semantic Kernel felhasználhassa a végső válaszhoz.
+    /// </summary>
+    private async Task<string> ExtractFactsFromLargeDataAsync(string largeText, string userQuestion)
+    {
+        Tokenizer tokenizer;
+        try
+        {
+            tokenizer = TiktokenTokenizer.CreateForModel("gpt-4.1-mini");
+        }
+        catch (Exception)
+        {
+            try
+            {
+                tokenizer = TiktokenTokenizer.CreateForEncoding("o200k_base");
+            }
+            catch (Exception)
+            {
+                tokenizer = TiktokenTokenizer.CreateForEncoding("cl100k_base");
+            }
+        }
+
+        var chunks = ChunkTextByTokens(largeText, tokenizer, _chunkTokenLimit);
+        var extractedFacts = new List<string>();
+
+        foreach (var chunk in chunks)
+        {
+            var extractionPrompt = new List<OpenAI.Chat.ChatMessage>
+            {
+                new SystemChatMessage(@"Te egy adatkinyerő AI vagy. 
+A feladatod a lényeges információk (tények, nevek, számok) kinyerése a megadott szövegből a kérdés kontextusában. 
+KIZÁRÓLAG egy JSON tömböt (stringekkel) vagy egy egyszerű vesszővel elválasztott listát adj vissza! 
+NE használj beszélgetős kötőszót vagy mondatokat! Ha a szövegből nem derül ki a válasz, add vissza az üres stringet."),
+                new UserChatMessage($"Kérdés: {userQuestion}\n\nSzöveg részlet:\n{chunk}")
+            };
+
+            var chunkResponse = await _chatClient.CompleteChatAsync(extractionPrompt);
+            var rawData = chunkResponse.Value.Content[0].Text?.Trim() ?? string.Empty;
+            
+            if (!string.IsNullOrWhiteSpace(rawData) && rawData != "[]" && !rawData.Contains("Nincs releváns adat"))
+            {
+                extractedFacts.Add(rawData);
+            }
+        }
+
+        string aggregatedData = string.Join("\n", extractedFacts);
+        
+        return string.IsNullOrWhiteSpace(aggregatedData) 
+            ? "Nem találtam releváns adatot a dokumentumban ehhez a kérdéshez." 
+            : aggregatedData;
     }
 }

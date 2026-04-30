@@ -109,7 +109,7 @@ foreach (var file in csFiles)
     {
         string sourceCode = await File.ReadAllTextAsync(file);
 
-        // 3. LÉPÉS: A Bővített Prompt
+        // 3. LÉPÉS: prompt összeállítása a Tudásbázis és a Tesztelendő Forráskód alapján
         string prompt = $@"
 Te egy Senior C# .NET tesztelő mérnök vagy.
 A feladatod, hogy xUnit teszteket írj a megadott TESZTELENDŐ C# osztályhoz.
@@ -152,7 +152,7 @@ TESZTELENDŐ FORRÁSKÓD (Ehhez írd a tesztet):
 
         Console.WriteLine($"[KÉSZ] Mentve: {outputFilePath}");
 
-        // VÉDŐHÁLÓ: Várunk 5 másodpercet a következő fájl előtt, hogy az Azure OpenAI "kifújhassa" magát
+        // 7. újabb kérés előtt várakozás a Rate Limit miatt
         Console.WriteLine("Várakozás 5 másodpercet a Rate Limit miatt...");
         await Task.Delay(5000);
     }
