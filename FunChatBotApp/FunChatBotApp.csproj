@@ -17,7 +17,6 @@
     <PackageReference Include="Azure.Storage.Blobs" Version="12.27.0" />
     <PackageReference Include="Markdig" Version="1.1.2" /> 
     <PackageReference Include="Microsoft.Azure.Cosmos" Version="3.58.0" /> 
-    <PackageReference Include="Microsoft.ML.Tokenizers" Version="2.0.0" /> 
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.5.0" /> 
     <PackageReference Include="Microsoft.SemanticKernel" Version="1.74.0" /> 
     <PackageReference Include="Microsoft.SemanticKernel.Agents.Core" Version="1.74.0" /> 
@@ -25,6 +24,8 @@
     <PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
     <PackageReference Include="Microsoft.AspNetCore.Identity.EntityFrameworkCore" Version="9.0.0" />
     <PackageReference Include="Microsoft.AspNetCore.Diagnostics.EntityFrameworkCore" Version="9.0.0" />
+	<PackageReference Include="Microsoft.ML.Tokenizers" Version="3.0.0-preview.26160.2" />
+	<PackageReference Include="Microsoft.ML.Tokenizers.Data.O200kBase" Version="3.0.0-preview.26160.2" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" Version="9.0.0" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Tools" Version="9.0.0" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="9.0.0">
