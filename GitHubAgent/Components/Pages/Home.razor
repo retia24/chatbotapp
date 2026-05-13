@@ -1,63 +1,55 @@
 ﻿@page "/"
 @rendermode InteractiveServer
-@using Microsoft.SemanticKernel
+@using GitHubAgent.Services
+@inject GitHubAgentService AgentService
 
 <PageTitle>GitHub Agent</PageTitle>
 
-<h1>GitHub Agent</h1>
+<div class="container">
+    <h1>GitHub MCP Agent</h1>
 
-<div class="chat-container">
-    <div class="chat-history">
-        @foreach (var message in Messages)
-        {
-            <div class="message @(message.IsUser ? "user" : "system")">
-                @message.Text
+    <div class="chat-shell">
+        <div class="chat-history">
+            @foreach (var message in Messages)
+            {
+                <div class="message @message.Role">
+                    <div class="message-header">
+                        <span class="message-role">@message.RoleLabel</span>
+                        @if (message.ToolsUsed.Count > 0)
+                        {
+                            <span class="message-tools">Tools: @string.Join(", ", message.ToolsUsed)</span>
+                        }
+                    </div>
+                    <div class="message-body">@message.Text</div>
+                </div>
+            }
+        </div>
+
+        <div class="chat-input">
+            <textarea @bind="InputText" @bind:event="oninput" @onkeydown="HandleKeyDown" placeholder="Írj egy GitHub kérdést..." rows="3"></textarea>
+            <div class="chat-actions">
+                <button @onclick="SendMessage" disabled="@IsBusy">@SendButtonText</button>
+                <button @onclick="ClearChat" disabled="@IsBusy">Törlés</button>
             </div>
-        }
+            @if (!string.IsNullOrWhiteSpace(StatusMessage))
+            {
+                <div class="status">@StatusMessage</div>
+            }
+        </div>
     </div>
-
-    <div class="chat-input" style="margin-top:20px;">
-        <input type="text" @bind="InputText" @bind:event="oninput" @onkeydown="HandleKeyDown" placeholder="Enter command..." style="width:80%;" />
-        <button @onclick="SendMessage" style="width:15%">Send</button>
-    </div>
-</div>
-
-<div class="tools-container" style="margin-top:20px;">
-    <h2>Available Tools</h2>
-    <ul>
-        @foreach (var tool in AvailableTools)
-        {
-            <li>
-                <strong>@tool.Name</strong>: @tool.Description
-            </li>
-        }
-    </ul>
-    <h2>Loaded Info</h2>
-    <ul>
-        @foreach (var info in LoadedInfo)
-        {
-            <li>
-                @info
-            </li>
-        }
-    </ul>
 </div>
 
 @code {
     private string InputText { get; set; } = string.Empty;
     private List<ChatMessage> Messages { get; set; } = new();
-    private List<ToolInfo> AvailableTools { get; set; } = new();
-    private List<string> LoadedInfo { get; set; } = new();
+    private bool IsBusy { get; set; }
+    private string StatusMessage { get; set; } = string.Empty;
 
-    protected override async Task OnInitializedAsync()
-    {
-        // TODO: Initialize Semantic Kernel and MCP client
-        AvailableTools.Add(new ToolInfo { Name = "GitHub MCP", Description = "Placeholder for GitHub tool" });
-    }
+    private string SendButtonText => IsBusy ? "Küldés..." : "Küldés";
 
     private async Task HandleKeyDown(KeyboardEventArgs e)
     {
-        if (e.Key == "Enter")
+        if (e.Key == "Enter" && !e.ShiftKey)
         {
             await SendMessage();
         }
@@ -65,27 +57,65 @@
 
     private async Task SendMessage()
     {
-        if (string.IsNullOrWhiteSpace(InputText)) return;
+        if (IsBusy || string.IsNullOrWhiteSpace(InputText))
+        {
+            return;
+        }
 
-        Messages.Add(new ChatMessage { Text = InputText, IsUser = true });
-        var command = InputText;
+        var command = InputText.Trim();
+        Messages.Add(ChatMessage.CreateUser(command));
+        _chatHistory.Add(new GitHubAgentService.ChatTurn(GitHubAgentService.ChatRole.User, command));
         InputText = string.Empty;
+        StatusMessage = "Feldolgozás...";
+        IsBusy = true;
+        StateHasChanged();
 
-        // Simulate processing
-        Messages.Add(new ChatMessage { Text = $"Processing: {command}", IsUser = false });
-
-        // TODO: Call Semantic Kernel with MCP client here
+        try
+        {
+            var response = await AgentService.RunAgentAsync(BuildHistory());
+            Messages.Add(ChatMessage.CreateAssistant(response.Content, response.ToolsUsed));
+            _chatHistory.Add(new GitHubAgentService.ChatTurn(GitHubAgentService.ChatRole.Assistant, response.Content));
+        }
+        finally
+        {
+            IsBusy = false;
+            StatusMessage = string.Empty;
+        }
     }
 
-    public class ChatMessage
+    private void ClearChat()
     {
-        public string Text { get; set; } = string.Empty;
-        public bool IsUser { get; set; }
+        if (IsBusy)
+        {
+            return;
+        }
+
+        Messages.Clear();
+        _chatHistory.Clear();
     }
 
-    public class ToolInfo
+    private readonly List<GitHubAgentService.ChatTurn> _chatHistory = new();
+
+    private IReadOnlyList<GitHubAgentService.ChatTurn> BuildHistory()
     {
-        public string Name { get; set; } = string.Empty;
-        public string Description { get; set; } = string.Empty;
+        return _chatHistory;
+    }
+
+    private sealed class ChatMessage
+    {
+        public string Text { get; init; } = string.Empty;
+        public string Role { get; init; } = "assistant";
+        public string RoleLabel => Role == "user" ? "Te" : "Agent";
+        public IReadOnlyList<string> ToolsUsed { get; init; } = Array.Empty<string>();
+
+        public static ChatMessage CreateUser(string text)
+        {
+            return new ChatMessage { Text = text, Role = "user" };
+        }
+
+        public static ChatMessage CreateAssistant(string text, IReadOnlyList<string> tools)
+        {
+            return new ChatMessage { Text = text, Role = "assistant", ToolsUsed = tools };
+        }
     }
 }

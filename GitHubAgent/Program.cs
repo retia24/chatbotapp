@@ -1,4 +1,5 @@
 using GitHubAgent.Components;
+using GitHubAgent.Services;
 
 namespace GitHubAgent
 {
@@ -11,6 +12,8 @@ namespace GitHubAgent
             // Add services to the container.
             builder.Services.AddRazorComponents()
                 .AddInteractiveServerComponents();
+
+            builder.Services.AddSingleton<GitHubAgentService>();
 
             var app = builder.Build();
 
