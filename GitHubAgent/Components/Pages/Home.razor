@@ -1,0 +1,91 @@
+﻿@page "/"
+@rendermode InteractiveServer
+@using Microsoft.SemanticKernel
+
+<PageTitle>GitHub Agent</PageTitle>
+
+<h1>GitHub Agent</h1>
+
+<div class="chat-container">
+    <div class="chat-history">
+        @foreach (var message in Messages)
+        {
+            <div class="message @(message.IsUser ? "user" : "system")">
+                @message.Text
+            </div>
+        }
+    </div>
+
+    <div class="chat-input" style="margin-top:20px;">
+        <input type="text" @bind="InputText" @bind:event="oninput" @onkeydown="HandleKeyDown" placeholder="Enter command..." style="width:80%;" />
+        <button @onclick="SendMessage" style="width:15%">Send</button>
+    </div>
+</div>
+
+<div class="tools-container" style="margin-top:20px;">
+    <h2>Available Tools</h2>
+    <ul>
+        @foreach (var tool in AvailableTools)
+        {
+            <li>
+                <strong>@tool.Name</strong>: @tool.Description
+            </li>
+        }
+    </ul>
+    <h2>Loaded Info</h2>
+    <ul>
+        @foreach (var info in LoadedInfo)
+        {
+            <li>
+                @info
+            </li>
+        }
+    </ul>
+</div>
+
+@code {
+    private string InputText { get; set; } = string.Empty;
+    private List<ChatMessage> Messages { get; set; } = new();
+    private List<ToolInfo> AvailableTools { get; set; } = new();
+    private List<string> LoadedInfo { get; set; } = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        // TODO: Initialize Semantic Kernel and MCP client
+        AvailableTools.Add(new ToolInfo { Name = "GitHub MCP", Description = "Placeholder for GitHub tool" });
+    }
+
+    private async Task HandleKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter")
+        {
+            await SendMessage();
+        }
+    }
+
+    private async Task SendMessage()
+    {
+        if (string.IsNullOrWhiteSpace(InputText)) return;
+
+        Messages.Add(new ChatMessage { Text = InputText, IsUser = true });
+        var command = InputText;
+        InputText = string.Empty;
+
+        // Simulate processing
+        Messages.Add(new ChatMessage { Text = $"Processing: {command}", IsUser = false });
+
+        // TODO: Call Semantic Kernel with MCP client here
+    }
+
+    public class ChatMessage
+    {
+        public string Text { get; set; } = string.Empty;
+        public bool IsUser { get; set; }
+    }
+
+    public class ToolInfo
+    {
+        public string Name { get; set; } = string.Empty;
+        public string Description { get; set; } = string.Empty;
+    }
+}

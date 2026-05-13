@@ -1,5 +1,6 @@
 <Solution>
   <Project Path="FunChatBotApp.Tests/FunChatBotApp.Tests.csproj" Id="2f1663a8-744e-4c52-b9b2-5307a82d081d" />
   <Project Path="FunChatBotApp/FunChatBotApp.csproj" />
+  <Project Path="GitHubAgent/GitHubAgent.csproj" Id="563c1dcb-0bd7-4f0a-808d-1695f4e27e3c" />
   <Project Path="TestGenerator/TestGenerator.csproj" Id="8b7ac3e9-cdfe-4ed6-907b-fd7c8c4af9d9" />
 </Solution>
